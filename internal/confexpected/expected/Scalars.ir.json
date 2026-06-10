@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"name": {"type": "string", "x-ct-scalar": "string"}, "count": {"type": "integer", "x-ct-scalar": "int64"}, "price": {"type": "number", "x-ct-scalar": "float64"}, "active": {"type": "boolean", "x-ct-scalar": "bool"}, "created": {"type": "string", "x-ct-scalar": "datetime"}}, "required": ["active", "count", "created", "name", "price"]}

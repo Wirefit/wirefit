@@ -1,0 +1,10 @@
+/wirefit
+/dist/
+*.test
+.DS_Store
+node_modules/
+target/
+build/
+.gradle/
+.wirefit/
+wirefit-overrides.yaml

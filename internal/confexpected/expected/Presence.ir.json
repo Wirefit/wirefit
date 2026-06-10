@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"requiredNonNull": {"type": "string", "x-ct-scalar": "string"}, "requiredNullable": {"type": "string", "x-ct-scalar": "string", "x-ct-nullable": true}, "optionalNonNull": {"type": "string", "x-ct-scalar": "string"}}, "required": ["requiredNonNull", "requiredNullable"]}

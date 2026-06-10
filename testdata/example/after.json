@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "id": { "x-ct-scalar": "uuid" },
+    "total": { "x-ct-scalar": "int64" },
+    "status": { "x-ct-scalar": "string", "enum": ["ACTIVE", "BLOCKED", "CLOSED"] },
+    "discount": { "x-ct-scalar": "decimal" }
+  },
+  "required": ["id", "total", "status"]
+}

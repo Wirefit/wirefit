@@ -1,0 +1,23 @@
+{
+  "web-app": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "id": { "x-ct-scalar": "uuid" },
+        "email": { "x-ct-scalar": "string" },
+        "status": { "x-ct-scalar": "string", "enum": ["ACTIVE", "BLOCKED"] }
+      },
+      "required": ["id", "email"]
+    }
+  },
+  "billing-service": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "id": { "x-ct-scalar": "uuid" },
+        "total": { "x-ct-scalar": "float64" }
+      },
+      "required": ["id", "total"]
+    }
+  }
+}

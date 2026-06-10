@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "id": { "x-ct-scalar": "uuid" },
+    "email": { "x-ct-scalar": "string" },
+    "total": { "x-ct-scalar": "int64" },
+    "status": { "x-ct-scalar": "string", "enum": ["ACTIVE", "BLOCKED"] },
+    "legacyRef": { "x-ct-scalar": "string" }
+  },
+  "required": ["id", "email", "total", "status"]
+}

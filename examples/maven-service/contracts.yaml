@@ -1,0 +1,9 @@
+service: inventory-service
+schema-version: 1
+provides:
+  - id: inventory.stock-level
+    kind: rest
+    direction: response
+    dto: com.acme.inventory.StockLevelResponse
+settings:
+  java-mapper: com.acme.inventory.StockLevelResponse#wirefitMapper

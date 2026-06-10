@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string", "x-ct-scalar": "string"}, "qty": {"type": "integer", "x-ct-scalar": "int64"}}, "required": ["qty", "sku"]}}, "attributes": {"type": "object", "additionalProperties": true}}, "required": ["attributes", "items"]}

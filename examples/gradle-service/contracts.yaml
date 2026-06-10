@@ -1,0 +1,7 @@
+service: shipping-service
+schema-version: 1
+provides:
+  - id: shipping.shipment
+    kind: rest
+    direction: response
+    dto: com.acme.shipping.ShipmentResponse

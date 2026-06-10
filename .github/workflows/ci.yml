@@ -1,0 +1,81 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24' }
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+
+  java-extractor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: extractors/java/test.sh
+
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: conformance/run.sh
+
+  end-to-end:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: examples/demo.sh
+      - name: maven classpath auto-resolution
+        run: |
+          cd examples/maven-service
+          mvn -q -DskipTests compile
+          cd ../..
+          go run ./cmd/wirefit extract -f examples/maven-service/contracts.yaml \
+            --project examples/maven-service --ir /tmp/ir-maven
+          go run ./cmd/wirefit hash /tmp/ir-maven/provides/inventory.stock-level.ir.json
+      - uses: gradle/actions/setup-gradle@v4
+      - name: gradle classpath auto-resolution
+        run: |
+          cd examples/gradle-service
+          gradle -q compileJava
+          cd ../..
+          go run ./cmd/wirefit extract -f examples/gradle-service/contracts.yaml \
+            --project examples/gradle-service --ir /tmp/ir-gradle
+          go run ./cmd/wirefit hash /tmp/ir-gradle/provides/shipping.shipment.ir.json
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [go, java-extractor, conformance, end-to-end]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24' }
+      - uses: goreleaser/goreleaser-action@v6
+        with: { args: release --clean }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

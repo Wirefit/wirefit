@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"name": {"type": "string", "x-ct-scalar": "string"}, "children": {"type": "array", "items": {"x-ct-recursive": true}}}, "required": ["children", "name"]}

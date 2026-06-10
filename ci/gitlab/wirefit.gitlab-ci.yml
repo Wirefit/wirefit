@@ -1,0 +1,58 @@
+# wirefit GitLab CI component (PRD 3.5).
+#
+# Usage in a service repo's .gitlab-ci.yml:
+#
+#   include:
+#     - project: wirefit/wirefit          # placeholder until published
+#       file: ci/gitlab/wirefit.gitlab-ci.yml
+#   variables:
+#     WIREFIT_CONTRACTS_REPO: "https://gitlab-ci-token:${CONTRACTS_TOKEN}@gitlab.com/acme/contracts.git"
+#
+# Auth: CONTRACTS_TOKEN needs read on MRs, write on the default branch.
+# Functional parity with the GitHub Action: same exit-code gate, same
+# markdown report posted as a sticky MR note (PRD 3.6 Reporter contract).
+#
+# Status: implemented, not yet exercised in CI (sandbox has no GitLab runner);
+# treat as beta until the demo project on gitlab.com is wired up.
+
+.wirefit-base:
+  image: golang:1.24
+  variables:
+    WIREFIT_MANIFEST: contracts.yaml
+  before_script:
+    - go install github.com/wirefit/wirefit/cmd/wirefit@latest   # TODO: pinned release binary + checksum
+    - git clone --depth 1 "$WIREFIT_CONTRACTS_REPO" .wirefit/contracts-repo
+
+wirefit-check:
+  extends: .wirefit-base
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - wirefit extract -f "$WIREFIT_MANIFEST"
+    - wirefit check -f "$WIREFIT_MANIFEST" --contracts-repo .wirefit/contracts-repo --report .wirefit/report.md
+  after_script:
+    # Sticky MR note: update the previous wirefit note if present, else create.
+    - |
+      if [ -f .wirefit/report.md ] && [ -n "$CI_MERGE_REQUEST_IID" ]; then
+        BODY="$(printf '<!-- wirefit -->\n%s' "$(cat .wirefit/report.md)")"
+        NOTES_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/notes"
+        PREV_ID=$(curl -s --header "PRIVATE-TOKEN: ${CONTRACTS_TOKEN}" "${NOTES_URL}?per_page=100" \
+          | python3 -c 'import json,sys; ns=[n["id"] for n in json.load(sys.stdin) if n["body"].startswith("<!-- wirefit -->")]; print(ns[0] if ns else "")')
+        if [ -n "$PREV_ID" ]; then
+          curl -s --request PUT --header "PRIVATE-TOKEN: ${CONTRACTS_TOKEN}" "${NOTES_URL}/${PREV_ID}" --data-urlencode "body=${BODY}" >/dev/null
+        else
+          curl -s --request POST --header "PRIVATE-TOKEN: ${CONTRACTS_TOKEN}" "${NOTES_URL}" --data-urlencode "body=${BODY}" >/dev/null
+        fi
+      fi
+  artifacts:
+    when: always
+    paths: [.wirefit/report.md]
+
+wirefit-publish:
+  extends: .wirefit-base
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - wirefit extract -f "$WIREFIT_MANIFEST"
+    - wirefit check -f "$WIREFIT_MANIFEST" --contracts-repo .wirefit/contracts-repo
+    - wirefit publish -f "$WIREFIT_MANIFEST" --contracts-repo .wirefit/contracts-repo

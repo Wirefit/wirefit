@@ -1,0 +1,39 @@
+# goreleaser config (PRD: OSS scaffolding). Run on tag push via release workflow.
+version: 2
+
+project_name: wirefit
+
+builds:
+  - main: ./cmd/wirefit
+    binary: wirefit
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+# SLSA provenance / signing: enable once the repository + release identity are
+# settled (binary runs in everyone's CI — supply-chain hygiene is table stakes).
+
+release:
+  draft: true
+  footer: |
+    Exit codes: 0 ok/warnings · 1 breaking change · 2 config/input error.
+
+brews:
+  - repository:
+      owner: wirefit    # placeholder pending naming decision (PRD §8)
+      name: homebrew-tap
+    homepage: https://github.com/wirefit/wirefit
+    description: Language-agnostic contract checking — no pact files, no broker
+    license: Apache-2.0
+    skip_upload: true   # flip when the tap repo exists
