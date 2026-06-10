@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"small": {"type": "integer", "x-ct-scalar": "int32"}, "big": {"type": "integer", "x-ct-scalar": "int64"}}, "required": ["big", "small"]}

@@ -1,7 +1,9 @@
 # wirefit — language-agnostic contract checking
 
 > **Status: Phase 3 core landed — Go extractor, public extractor protocol v1 + conformance kit,
-> rule overrides with expiry, GitLab CI component (beta), markdown PR/MR reports.**
+> rule overrides with expiry (+ `override add` helper, org-level policy.yaml governance),
+> GitLab CI component (beta), markdown PR/MR reports. Gradle + Maven paths both CI-covered;
+> goreleaser snapshot verified; tsconfig path aliases confirmed working; 14-case corpus.**
 > Previously: Phase 2 —
 > Java provider ↔ TS consumer checks work end-to-end with hash-identical IR proven by
 > `conformance/run.sh`. Zod v4 schemas supported (runtime z.toJSONSchema). Remaining Phase 2: tsconfig path aliases.

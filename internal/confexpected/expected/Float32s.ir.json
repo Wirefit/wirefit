@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"ratio": {"type": "number", "x-ct-scalar": "float32"}, "precise": {"type": "number", "x-ct-scalar": "float64"}}, "required": ["precise", "ratio"]}

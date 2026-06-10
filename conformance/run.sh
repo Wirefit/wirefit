@@ -25,6 +25,7 @@ javac --release 11 -cp "$CP" -d "$WORK/classes" \
   echo "consumes:"
   for dir in conformance/cases/*/; do
     name="$(basename "$dir")"
+    [ -f "$dir/$name.ts" ] || continue
     lower="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
     echo "  - id: conformance.$lower"
     echo "    provider: javaside"
@@ -48,7 +49,11 @@ d = json.load(open('$WORK/$name.java.json'))
 json.dump(d['conformance.$name'], open('$WORK/$name.java.ir.json', 'w'))
 "
   jhash="$("$WORK/wirefit" hash "$WORK/$name.java.ir.json")"
-  thash="$("$WORK/wirefit" hash "$WORK/ts-ir/consumes/javaside/conformance.$lower.ir.json")"
+  if [ -f "$dir/$name.ts" ]; then
+    thash="$("$WORK/wirefit" hash "$WORK/ts-ir/consumes/javaside/conformance.$lower.ir.json")"
+  else
+    thash="$jhash"   # ts n/a for this case
+  fi
   if [ "$UPDATE" = "--update-expected" ]; then
     cp "$WORK/$name.java.ir.json" "internal/confexpected/expected/$name.ir.json"
   fi
@@ -81,7 +86,10 @@ json.dump(d['conformance.$name'], open('$WORK/$name.java.ir.json', 'w'))
     fi
   fi
   if [ "$jhash" = "$thash" ]; then
-    if [ -n "$gofile" ]; then echo "OK   $name  $jhash (java+ts+go)"; else echo "OK   $name  $jhash (java+ts; go: n/a)"; fi
+    langs="java"
+    [ -f "$dir/$name.ts" ] && langs="$langs+ts"
+    [ -n "$gofile" ] && langs="$langs+go"
+    echo "OK   $name  $jhash ($langs)"
   else
     echo "FAIL $name"
     echo "  java: $jhash"

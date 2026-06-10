@@ -53,9 +53,15 @@ zod v4** via `z.toJSONSchema`, then normalized to IR:
   (unrepresentable on the wire — use `z.iso.datetime()` etc.), non-string enums.
 - Keep schema files dependency-light: the Zod path executes the module.
 
+## Path aliases
+
+`tsconfig` `paths`/`baseUrl` aliases resolve automatically — the extractor builds the
+program from the project's own parsed tsconfig, so whatever the service's compiler
+resolves, the extractor resolves (verified by test). Monorepo *workspace* package
+resolution (pnpm/yarn cross-package imports) remains untested — report issues.
+
 ## Not yet (tracked)
 
-- `tsconfig` path aliases / monorepo workspace resolution (PRD P1).
 - io-ts / valibot detection (PRD P1: friendly "not supported" pointer).
 
 The cross-language conformance corpus (`conformance/`) asserts that Java and TS fixtures

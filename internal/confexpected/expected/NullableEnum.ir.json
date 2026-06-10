@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"status": {"type": "string", "x-ct-scalar": "string", "enum": ["AMBER", "GREEN"], "x-ct-nullable": true}}, "required": ["status"]}

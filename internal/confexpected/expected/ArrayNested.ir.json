@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"matrix": {"type": "array", "items": {"type": "array", "items": {"type": "string", "x-ct-scalar": "string"}}}}, "required": ["matrix"]}
