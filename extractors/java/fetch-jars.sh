@@ -15,13 +15,13 @@ fetch() { # path sha256
   echo "$2  $JARS/$file" | sha256sum -c --quiet -
 }
 
-fetch com/fasterxml/jackson/core/jackson-core/2.17.2/jackson-core-2.17.2.jar \
-  721a189241dab0525d9e858e5cb604d3ecc0ede081e2de77d6f34fa5779a5b46
-fetch com/fasterxml/jackson/core/jackson-databind/2.17.2/jackson-databind-2.17.2.jar \
-  c04993f33c0f845342653784f14f38373d005280e6359db5f808701cfae73c0c
-fetch com/fasterxml/jackson/core/jackson-annotations/2.17.2/jackson-annotations-2.17.2.jar \
-  873a606e23507969f9bbbea939d5e19274a88775ea5a169ba7e2d795aa5156e1
-fetch com/fasterxml/jackson/datatype/jackson-datatype-jdk8/2.17.2/jackson-datatype-jdk8-2.17.2.jar \
-  aaa98d3edabf50426bd822fad1442fbdada6e470969326cbcab5c2798f1738d9
-fetch com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar \
-  766ad2a0783f2687962c8ad74ceecc38a28b9f72a2d085ee438b7813e928d0c7
+fetch com/fasterxml/jackson/core/jackson-core/2.22.0/jackson-core-2.22.0.jar \
+  d2e8dd4df1e0f61b786ea06792f5bf4235d8278f158f3be6e997e955931c0c98
+fetch com/fasterxml/jackson/core/jackson-databind/2.22.0/jackson-databind-2.22.0.jar \
+  3520a0351f294699e3e1b7a37c7a726afd81e1a89ae702ac7d47ff347fd2ecbf
+fetch com/fasterxml/jackson/core/jackson-annotations/2.22/jackson-annotations-2.22.jar \
+  21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0
+fetch com/fasterxml/jackson/datatype/jackson-datatype-jdk8/2.22.0/jackson-datatype-jdk8-2.22.0.jar \
+  f1051ed0938aa5edb7567ab19c2c7e1fade58f7fbad43d99a74cb506389c1ac5
+fetch jakarta/annotation/jakarta.annotation-api/3.0.0/jakarta.annotation-api-3.0.0.jar \
+  b01f55552284cfb149411e64eabca75e942d26d2e1786b32914250e4330afaa2

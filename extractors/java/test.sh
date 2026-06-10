@@ -8,10 +8,10 @@ cd "$(dirname "$0")"
 
 ./fetch-jars.sh
 JARS="${WIREFIT_JARS_DIR:-/tmp/jars}"
-CP="$JARS/jackson-core-2.17.2.jar:$JARS/jackson-databind-2.17.2.jar:$JARS/jackson-annotations-2.17.2.jar:$JARS/jackson-datatype-jdk8-2.17.2.jar:$JARS/jsr305-3.0.2.jar"
+CP="$JARS/jackson-core-2.22.0.jar:$JARS/jackson-databind-2.22.0.jar:$JARS/jackson-annotations-2.22.jar:$JARS/jackson-datatype-jdk8-2.22.0.jar:$JARS/jakarta.annotation-api-3.0.0.jar"
 OUT="$(mktemp -d)"
 
-javac --release 11 -cp "$CP" -d "$OUT" \
+javac --release 17 -cp "$CP" -d "$OUT" \
   ../../internal/javatool/WirefitExtract.java fixtures/src/com/acme/orders/*.java
 
 java -cp "$CP:$OUT" io.wirefit.extract.WirefitExtract \

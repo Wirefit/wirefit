@@ -1,6 +1,6 @@
 package com.acme.shipping;
 
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 import java.time.Instant;
 import java.util.List;
 

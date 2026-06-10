@@ -7,6 +7,8 @@
 > Phase 4: env lockfiles, `record-deploy`, `can-i-deploy` (deployed-state gating with
 > untracked/stale surfacing), `matrix` report — `examples/demo-deploy.sh` proves the
 > HEAD-green-but-deploy-blocked scenario.
+> Toolchain baselines (2026-06): Java 17 bytecode floor (CI on JDK 25), jakarta.annotation
+> in all fixtures (javax matched too, by simple name), Jackson 2.22, TypeScript 6, Node 24 CI.
 > Phase 5: schema-native importers (.proto / .avsc / GraphQL SDL + persisted-query
 > projections), mirror check (code vs schema drift always fails), Python extractor via
 > protocol v1 passing the corpus. Rust extractor deferred (PRD note).**
@@ -50,7 +52,7 @@ examples/           demo.sh acceptance scenario + maven-service integration fixt
 
 ```
 go test ./...                 # unit + rule corpus
-./examples/demo.sh            # full acceptance scenario (needs go, jdk11+, jackson jars)
+./examples/demo.sh            # full acceptance scenario (needs go, jdk17+, jackson jars)
 ./examples/demo-deploy.sh     # phase 4: can-i-deploy blocks what HEAD checks miss
 go run ./cmd/wirefit diff --before testdata/example/before.json --after testdata/example/after.json \
   --direction response --consumers testdata/example/consumers.json

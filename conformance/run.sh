@@ -8,14 +8,14 @@ cd "$(dirname "$0")/.."
 
 ./extractors/java/fetch-jars.sh
 JARS="${WIREFIT_JARS_DIR:-/tmp/jars}"
-CP="$JARS/jackson-core-2.17.2.jar:$JARS/jackson-databind-2.17.2.jar:$JARS/jackson-annotations-2.17.2.jar:$JARS/jackson-datatype-jdk8-2.17.2.jar:$JARS/jsr305-3.0.2.jar"
+CP="$JARS/jackson-core-2.22.0.jar:$JARS/jackson-databind-2.22.0.jar:$JARS/jackson-annotations-2.22.jar:$JARS/jackson-datatype-jdk8-2.22.0.jar:$JARS/jakarta.annotation-api-3.0.0.jar"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 go build -o "$WORK/wirefit" ./cmd/wirefit
 
 # --- Java side: compile all cases, extract each --------------------------
-javac --release 11 -cp "$CP" -d "$WORK/classes" \
+javac --release 17 -cp "$CP" -d "$WORK/classes" \
   internal/javatool/WirefitExtract.java conformance/cases/*/*.java
 
 # --- TS side: one generated manifest covering all cases ------------------

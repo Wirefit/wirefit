@@ -8,16 +8,16 @@ cd "$(dirname "$0")/.."
 
 ./extractors/java/fetch-jars.sh
 JARS="${WIREFIT_JARS_DIR:-/tmp/jars}"
-CP="$JARS/jackson-core-2.17.2.jar:$JARS/jackson-databind-2.17.2.jar:$JARS/jackson-annotations-2.17.2.jar:$JARS/jackson-datatype-jdk8-2.17.2.jar:$JARS/jsr305-3.0.2.jar"
-J="$JARS/jsr305-3.0.2.jar"
+CP="$JARS/jackson-core-2.22.0.jar:$JARS/jackson-databind-2.22.0.jar:$JARS/jackson-annotations-2.22.jar:$JARS/jackson-datatype-jdk8-2.22.0.jar:$JARS/jakarta.annotation-api-3.0.0.jar"
+J="$JARS/jakarta.annotation-api-3.0.0.jar"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 step() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 
 step "setup: build, init contracts repo, publish provider v1 + consumer v1, record deploys"
 go build -o "$WORK/wirefit" ./cmd/wirefit
-javac --release 11 -cp "$CP" -d "$WORK/prov-v1" extractors/java/fixtures/src/com/acme/orders/*.java
-javac --release 11 -cp "$CP" -d "$WORK/cons-v1" examples/web-app/src/com/acme/orders/web/OrderView.java
+javac --release 17 -cp "$CP" -d "$WORK/prov-v1" extractors/java/fixtures/src/com/acme/orders/*.java
+javac --release 17 -cp "$CP" -d "$WORK/cons-v1" examples/web-app/src/com/acme/orders/web/OrderView.java
 REPO="$WORK/repo"; mkdir -p "$REPO"; git -C "$REPO" init -q
 git -C "$REPO" config user.email demo@wirefit; git -C "$REPO" config user.name wirefit-demo
 
@@ -34,7 +34,7 @@ cat > "$WORK/cons-src-v2/OrderView.java" <<'JAVA'
 package com.acme.orders.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 import java.util.UUID;
 
 /** v2: migrated off customer_email. */
@@ -44,14 +44,14 @@ public class OrderView {
     public UUID orderId;
 }
 JAVA
-javac --release 11 -cp "$CP" -d "$WORK/cons-v2" "$WORK/cons-src-v2/OrderView.java"
+javac --release 17 -cp "$CP" -d "$WORK/cons-v2" "$WORK/cons-src-v2/OrderView.java"
 "$WORK/wirefit" extract -f examples/web-app/contracts.yaml --classpath "$WORK/cons-v2:$J" --ir "$WORK/ir-cons-v2" >/dev/null
 "$WORK/wirefit" publish -f examples/web-app/contracts.yaml --contracts-repo "$REPO" --ir "$WORK/ir-cons-v2" >/dev/null
 
 step "provider removes customer_email: HEAD check is GREEN (main consumer no longer reads it)"
 mkdir "$WORK/prov-src-v2" && cp extractors/java/fixtures/src/com/acme/orders/*.java "$WORK/prov-src-v2/"
 grep -v 'customerEmail' "$WORK/prov-src-v2/OrderResponse.java" > "$WORK/t" && mv "$WORK/t" "$WORK/prov-src-v2/OrderResponse.java"
-javac --release 11 -cp "$CP" -d "$WORK/prov-v2" "$WORK/prov-src-v2/"*.java
+javac --release 17 -cp "$CP" -d "$WORK/prov-v2" "$WORK/prov-src-v2/"*.java
 "$WORK/wirefit" extract -f examples/order-service/contracts.yaml --classpath "$WORK/prov-v2:$J" --ir "$WORK/ir-prov-v2" >/dev/null
 "$WORK/wirefit" check -f examples/order-service/contracts.yaml --contracts-repo "$REPO" --ir "$WORK/ir-prov-v2" | tail -1
 echo ">>> HEAD check green (exit 0) — main-vs-main sees no problem"

@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;

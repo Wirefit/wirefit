@@ -1,6 +1,6 @@
 package conformance;
 
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 import java.util.Optional;
 
 /** The three presence/nullability combinations expressible in both languages (SPEC §7). */

@@ -1,6 +1,6 @@
 package conformance;
 
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 
 public class EnumSingle {
     @Nonnull public Status status;

@@ -2,7 +2,7 @@ package com.acme.orders.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 import java.util.UUID;
 
 /**

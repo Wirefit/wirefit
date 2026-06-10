@@ -312,7 +312,7 @@ public final class WirefitExtract {
                 || inc == JsonInclude.Include.NON_EMPTY;
     }
 
-    /** Nullability annotations matched by simple name: javax, jakarta, JetBrains, Lombok, Checker. */
+    /** Nullability annotations matched by simple name: jakarta, javax, JetBrains, Lombok, Checker. */
     private static boolean hasAnnotation(AnnotatedMember member, String... simpleNames) {
         AnnotatedElement el = (AnnotatedElement) member.getMember();
         for (Annotation a : el.getAnnotations()) {

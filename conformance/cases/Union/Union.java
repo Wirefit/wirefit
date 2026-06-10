@@ -3,7 +3,7 @@ package conformance;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "method")
 @JsonSubTypes({

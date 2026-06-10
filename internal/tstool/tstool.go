@@ -17,11 +17,11 @@ import (
 var extractorSource string
 
 // extractorVersion keys the cache; bump on extract.js changes.
-const extractorVersion = "0.2.0"
+const extractorVersion = "0.3.0"
 
 // typescriptVersion is the pinned compiler dependency. npm verifies its
 // integrity from the lockfile-equivalent metadata at install time.
-const typescriptVersion = "5.9.3"
+const typescriptVersion = "6.0.3"
 
 func cacheDir() (string, error) {
 	base, err := os.UserCacheDir()

@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 ./extractors/java/fetch-jars.sh
 JARS="${WIREFIT_JARS_DIR:-/tmp/jars}"
-CP="$JARS/jackson-core-2.17.2.jar:$JARS/jackson-databind-2.17.2.jar:$JARS/jackson-annotations-2.17.2.jar:$JARS/jackson-datatype-jdk8-2.17.2.jar:$JARS/jsr305-3.0.2.jar"
+CP="$JARS/jackson-core-2.22.0.jar:$JARS/jackson-databind-2.22.0.jar:$JARS/jackson-annotations-2.22.jar:$JARS/jackson-datatype-jdk8-2.22.0.jar:$JARS/jakarta.annotation-api-3.0.0.jar"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -18,19 +18,19 @@ step() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 
 step "build wirefit + compile demo DTOs (wirefit extract bootstraps its own extractor)"
 go build -o "$WORK/wirefit" ./cmd/wirefit
-javac --release 11 -cp "$CP" -d "$WORK/provider-v1" extractors/java/fixtures/src/com/acme/orders/*.java
-javac --release 11 -cp "$CP" -d "$WORK/consumer" examples/web-app/src/com/acme/orders/web/OrderView.java
+javac --release 17 -cp "$CP" -d "$WORK/provider-v1" extractors/java/fixtures/src/com/acme/orders/*.java
+javac --release 17 -cp "$CP" -d "$WORK/consumer" examples/web-app/src/com/acme/orders/web/OrderView.java
 
 step "init contracts repo"
 REPO="$WORK/contracts-repo"
 mkdir -p "$REPO" && git -C "$REPO" init -q && git -C "$REPO" config user.email demo@wirefit && git -C "$REPO" config user.name wirefit-demo
 
 step "provider: extract + publish v1"
-"$WORK/wirefit" extract -f examples/order-service/contracts.yaml --classpath "$WORK/provider-v1:$JARS/jsr305-3.0.2.jar" --ir "$WORK/ir-provider-v1"
+"$WORK/wirefit" extract -f examples/order-service/contracts.yaml --classpath "$WORK/provider-v1:$JARS/jakarta.annotation-api-3.0.0.jar" --ir "$WORK/ir-provider-v1"
 "$WORK/wirefit" publish -f examples/order-service/contracts.yaml --contracts-repo "$REPO" --ir "$WORK/ir-provider-v1"
 
 step "consumer: extract + check + publish (registers usage of order_id, customer_email)"
-"$WORK/wirefit" extract -f examples/web-app/contracts.yaml --classpath "$WORK/consumer:$JARS/jsr305-3.0.2.jar" --ir "$WORK/ir-consumer"
+"$WORK/wirefit" extract -f examples/web-app/contracts.yaml --classpath "$WORK/consumer:$JARS/jakarta.annotation-api-3.0.0.jar" --ir "$WORK/ir-consumer"
 "$WORK/wirefit" check -f examples/web-app/contracts.yaml --contracts-repo "$REPO" --ir "$WORK/ir-consumer"
 "$WORK/wirefit" publish -f examples/web-app/contracts.yaml --contracts-repo "$REPO" --ir "$WORK/ir-consumer"
 
@@ -49,8 +49,8 @@ step "provider PR #1: remove CONSUMED field customer_email -> must be BLOCKED (b
 mkdir -p "$WORK/src-v2" && cp extractors/java/fixtures/src/com/acme/orders/*.java "$WORK/src-v2/"
 grep -v 'customerEmail' "$WORK/src-v2/OrderResponse.java" > "$WORK/src-v2/OrderResponse.tmp"
 mv "$WORK/src-v2/OrderResponse.tmp" "$WORK/src-v2/OrderResponse.java"
-javac --release 11 -cp "$CP" -d "$WORK/provider-v2" "$WORK/src-v2/"*.java
-"$WORK/wirefit" extract -f examples/order-service/contracts.yaml --classpath "$WORK/provider-v2:$JARS/jsr305-3.0.2.jar" --ir "$WORK/ir-provider-v2"
+javac --release 17 -cp "$CP" -d "$WORK/provider-v2" "$WORK/src-v2/"*.java
+"$WORK/wirefit" extract -f examples/order-service/contracts.yaml --classpath "$WORK/provider-v2:$JARS/jakarta.annotation-api-3.0.0.jar" --ir "$WORK/ir-provider-v2"
 if "$WORK/wirefit" check -f examples/order-service/contracts.yaml --contracts-repo "$REPO" --ir "$WORK/ir-provider-v2"; then
   echo "DEMO FAILED: breaking change was not blocked"; exit 1
 else
@@ -74,8 +74,8 @@ step "provider PR #2: remove UNCONSUMED field coupon_code -> must PASS"
 mkdir -p "$WORK/src-v3" && cp extractors/java/fixtures/src/com/acme/orders/*.java "$WORK/src-v3/"
 grep -v -e 'couponCode' -e 'JsonInclude.Include.NON_NULL' "$WORK/src-v3/OrderResponse.java" > "$WORK/src-v3/OrderResponse.tmp"
 mv "$WORK/src-v3/OrderResponse.tmp" "$WORK/src-v3/OrderResponse.java"
-javac --release 11 -cp "$CP" -d "$WORK/provider-v3" "$WORK/src-v3/"*.java
-"$WORK/wirefit" extract -f examples/order-service/contracts.yaml --classpath "$WORK/provider-v3:$JARS/jsr305-3.0.2.jar" --ir "$WORK/ir-provider-v3"
+javac --release 17 -cp "$CP" -d "$WORK/provider-v3" "$WORK/src-v3/"*.java
+"$WORK/wirefit" extract -f examples/order-service/contracts.yaml --classpath "$WORK/provider-v3:$JARS/jakarta.annotation-api-3.0.0.jar" --ir "$WORK/ir-provider-v3"
 "$WORK/wirefit" check -f examples/order-service/contracts.yaml --contracts-repo "$REPO" --ir "$WORK/ir-provider-v3"
 echo ">>> correctly passed (exit 0)"
 

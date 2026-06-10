@@ -299,8 +299,13 @@ function unionToIR(variants, defs, ctx, refStack) {
 // === path 1: TypeScript types (compiler API) ================================
 
 function isDateType(t) {
+  // Robust across TS lib reorganizations (5.x hasNoDefaultLib, 6.x split libs):
+  // the global Date is any symbol named Date declared in a default lib.*.d.ts.
   return !!(t.symbol && t.symbol.name === 'Date' &&
-    t.symbol.declarations && t.symbol.declarations.some((d) => d.getSourceFile().hasNoDefaultLib));
+    t.symbol.declarations && t.symbol.declarations.some((d) => {
+      const sf = d.getSourceFile();
+      return sf.isDeclarationFile && /(^|[\\/])lib(\.[^\\/]+)?\.d\.[cm]?ts$/.test(sf.fileName);
+    }));
 }
 
 function scalarNode(scalar) {

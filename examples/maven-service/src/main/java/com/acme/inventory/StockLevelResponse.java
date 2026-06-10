@@ -3,7 +3,7 @@ package com.acme.inventory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 import java.time.Instant;
 
 public class StockLevelResponse {
