@@ -35,6 +35,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: conformance/run.sh
+      - name: python extractor via protocol v1
+        run: |
+          pip install pydantic --quiet
+          go run ./cmd/wirefit extractor-test --cases extractors/python/fixtures/cases.yaml \
+            --project extractors/python -- python3 extractors/python/wirefit_extract_py.py
 
   end-to-end:
     runs-on: ubuntu-latest

@@ -21,6 +21,7 @@ import (
 	"github.com/wirefit/wirefit/internal/diff"
 	"github.com/wirefit/wirefit/internal/extproto"
 	"github.com/wirefit/wirefit/internal/gotool"
+	"github.com/wirefit/wirefit/internal/importer"
 	"github.com/wirefit/wirefit/internal/ir"
 	"github.com/wirefit/wirefit/internal/javatool"
 	"github.com/wirefit/wirefit/internal/manifest"
@@ -76,7 +77,11 @@ func cmdExtract(args []string) int {
 	// dto → list of relative output paths (the same DTO may back several interactions).
 	targets := map[string][]string{}
 	for _, p := range m.Provides {
-		targets[p.DTO] = append(targets[p.DTO], filepath.Join("provides", p.ID+".ir.json"))
+		src := p.DTO
+		if src == "" {
+			src = p.Schema // schema-native artifact IS the contract (Phase 5)
+		}
+		targets[src] = append(targets[src], filepath.Join("provides", p.ID+".ir.json"))
 	}
 	for _, c := range m.Consumes {
 		targets[c.DTO] = append(targets[c.DTO], filepath.Join("consumes", c.Provider, c.ID+".ir.json"))
@@ -104,10 +109,19 @@ func cmdExtract(args []string) int {
 		}
 		return nil
 	}
+	extracted := map[string]json.RawMessage{}
 	var javaFQNs, goSpecs, tsProvided, tsConsumed []string
 	extReqs := map[string]*extproto.Request{} // command line → request
 	for dto := range targets {
 		switch {
+		case importer.IsSpec(dto):
+			raw, err := importer.Import(*projectDir, dto, importer.Options{GraphQLSchema: m.Settings.GraphQLSchema})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "wirefit extract:", err)
+				return 2
+			}
+			extracted[dto] = raw
+			continue
 		case external(dto) != nil:
 			cmdLine := strings.Join(external(dto), "\x00")
 			req := extReqs[cmdLine]
@@ -137,8 +151,6 @@ func cmdExtract(args []string) int {
 	sort.Strings(goSpecs)
 	sort.Strings(tsProvided)
 	sort.Strings(tsConsumed)
-
-	extracted := map[string]json.RawMessage{}
 
 	for cmdLine, req := range extReqs {
 		sort.Slice(req.Specs, func(i, j int) bool { return req.Specs[i].Ref < req.Specs[j].Ref })
@@ -223,6 +235,41 @@ func cmdExtract(args []string) int {
 			extracted[k] = v
 		}
 	}
+	// Mirror check (PRD 5.7): when an interaction declares BOTH code dto and
+	// schema artifact, they must agree byte-for-byte. Drift always fails —
+	// no override (a schema file lying about the code is never acceptable).
+	for _, p := range m.Provides {
+		if p.DTO == "" || p.Schema == "" {
+			continue
+		}
+		schemaRaw, err := importer.Import(*projectDir, p.Schema, importer.Options{GraphQLSchema: m.Settings.GraphQLSchema})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit extract: mirror:", err)
+			return 2
+		}
+		schemaIR, err := ir.Parse(schemaRaw)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "wirefit extract: mirror %s: %v\n", p.Schema, err)
+			return 2
+		}
+		dtoIR, err := ir.Parse(extracted[p.DTO])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "wirefit extract: mirror %s: %v\n", p.DTO, err)
+			return 2
+		}
+		hs, _ := ir.HashSchema(schemaIR)
+		hd, _ := ir.HashSchema(dtoIR)
+		if hs != hd {
+			fmt.Fprintf(os.Stderr, "wirefit extract: MIRROR DRIFT on %s — %s and %s disagree:\n", p.ID, p.Schema, p.DTO)
+			dir, _ := diff.ParseDirection(p.Direction)
+			r := diff.Self(schemaIR, dtoIR, diff.SelfOptions{Direction: dir})
+			for _, f := range r.Findings {
+				fmt.Fprintf(os.Stderr, "  %s %s %s\n", f.Rule, f.Path, f.Message)
+			}
+			return 1
+		}
+	}
+
 	for fqn, rels := range targets {
 		raw, ok := extracted[fqn]
 		if !ok {

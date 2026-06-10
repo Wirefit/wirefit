@@ -1,0 +1,13 @@
+cases:
+  - name: Scalars
+    spec: fixtures/cases.py#Scalars
+  - name: Presence
+    spec: fixtures/cases.py#Presence
+  - name: Enums
+    spec: fixtures/cases.py#Enums
+  - name: Nested
+    spec: fixtures/cases.py#Nested
+  - name: Recursion
+    spec: fixtures/cases.py#Recursion
+  - name: Union
+    spec: fixtures/cases.py#Union_

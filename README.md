@@ -6,7 +6,10 @@
 > goreleaser snapshot verified; tsconfig path aliases confirmed working; 14-case corpus.
 > Phase 4: env lockfiles, `record-deploy`, `can-i-deploy` (deployed-state gating with
 > untracked/stale surfacing), `matrix` report — `examples/demo-deploy.sh` proves the
-> HEAD-green-but-deploy-blocked scenario.**
+> HEAD-green-but-deploy-blocked scenario.
+> Phase 5: schema-native importers (.proto / .avsc / GraphQL SDL + persisted-query
+> projections), mirror check (code vs schema drift always fails), Python extractor via
+> protocol v1 passing the corpus. Rust extractor deferred (PRD note).**
 > Previously: Phase 2 —
 > Java provider ↔ TS consumer checks work end-to-end with hash-identical IR proven by
 > `conformance/run.sh`. Zod v4 schemas supported (runtime z.toJSONSchema). Remaining Phase 2: tsconfig path aliases.
@@ -33,6 +36,8 @@ internal/tstool/    embedded extract.js (TS compiler API), pinned typescript npm
 conformance/        cross-language corpus: Java + TS + Go fixtures must produce hash-identical IR
 internal/gotool/    Go extractor (generated reflection program inside the service module)
 internal/extproto/  public extractor protocol v1 (docs/extractor-protocol.md)
+internal/importer/  schema-native importers: .proto, .avsc, GraphQL SDL + operations
+extractors/python/  pydantic v2 extractor (external, protocol v1) + corpus fixtures
 internal/override/  rule overrides: (interaction,path,rule) downgrades with justification + expiry
 ci/gitlab/          GitLab CI component (sticky MR note, beta)
 extractors/java/    Java extractor fixtures, mapping docs, round-trip test

@@ -33,6 +33,10 @@ type Interaction struct {
 	Kind      string `yaml:"kind"`      // rest | event | rpc
 	Direction string `yaml:"direction"` // response | request | event
 	DTO       string `yaml:"dto"`
+	// Schema: optional schema-native artifact (.proto/.avsc/.graphql). Alone,
+	// it IS the contract source; together with dto it arms the mirror check
+	// (PRD 5.7): code and schema file must agree, drift always fails.
+	Schema string `yaml:"schema"`
 }
 
 type Consumption struct {
@@ -47,6 +51,8 @@ type Settings struct {
 	// JavaMapper: optional ObjectMapper provider, "<class-fqn>#<static-method>".
 	// The documented fallback for custom/Spring Jackson configuration.
 	JavaMapper string `yaml:"java-mapper"`
+	// GraphQLSchema: SDL path used to resolve GraphQL operation files (PRD 5.4).
+	GraphQLSchema string `yaml:"graphql-schema"`
 }
 
 var (
@@ -127,8 +133,8 @@ func (m *Manifest) Validate() []error {
 		if p.Kind == "event" && p.Direction != "event" {
 			fail("%s: kind event requires direction event", at)
 		}
-		if p.DTO == "" {
-			fail("%s: dto is required", at)
+		if p.DTO == "" && p.Schema == "" {
+			fail("%s: dto or schema is required", at)
 		}
 	}
 
