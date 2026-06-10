@@ -43,6 +43,12 @@ func run(args []string) int {
 		return cmdPublish(args[1:])
 	case "extractor-test":
 		return cmdExtractorTest(args[1:])
+	case "record-deploy":
+		return cmdRecordDeploy(args[1:])
+	case "can-i-deploy":
+		return cmdCanIDeploy(args[1:])
+	case "matrix":
+		return cmdMatrix(args[1:])
 	case "override":
 		if len(args) > 1 && args[1] == "add" {
 			return cmdOverrideAdd(args[2:])
@@ -75,6 +81,9 @@ usage: wirefit <command> [flags]
   compat     low-level producer-vs-consumer compatibility check
   extractor-test  conformance kit for third-party extractors (docs/extractor-protocol.md)
   override add    append a justified, expiring override to wirefit-overrides.yaml
+  record-deploy   pin this service's published contracts as deployed in an env
+  can-i-deploy    check the candidate against what is DEPLOYED in an env
+  matrix          render the deployed compatibility matrix across envs
   version    print version
 
 not yet implemented: init

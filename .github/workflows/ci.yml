@@ -47,6 +47,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: examples/demo.sh
+      - run: examples/demo-deploy.sh
       - name: maven classpath auto-resolution
         run: |
           cd examples/maven-service

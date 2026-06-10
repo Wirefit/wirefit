@@ -3,7 +3,10 @@
 > **Status: Phase 3 core landed — Go extractor, public extractor protocol v1 + conformance kit,
 > rule overrides with expiry (+ `override add` helper, org-level policy.yaml governance),
 > GitLab CI component (beta), markdown PR/MR reports. Gradle + Maven paths both CI-covered;
-> goreleaser snapshot verified; tsconfig path aliases confirmed working; 14-case corpus.**
+> goreleaser snapshot verified; tsconfig path aliases confirmed working; 14-case corpus.
+> Phase 4: env lockfiles, `record-deploy`, `can-i-deploy` (deployed-state gating with
+> untracked/stale surfacing), `matrix` report — `examples/demo-deploy.sh` proves the
+> HEAD-green-but-deploy-blocked scenario.**
 > Previously: Phase 2 —
 > Java provider ↔ TS consumer checks work end-to-end with hash-identical IR proven by
 > `conformance/run.sh`. Zod v4 schemas supported (runtime z.toJSONSchema). Remaining Phase 2: tsconfig path aliases.
@@ -43,6 +46,7 @@ examples/           demo.sh acceptance scenario + maven-service integration fixt
 ```
 go test ./...                 # unit + rule corpus
 ./examples/demo.sh            # full acceptance scenario (needs go, jdk11+, jackson jars)
+./examples/demo-deploy.sh     # phase 4: can-i-deploy blocks what HEAD checks miss
 go run ./cmd/wirefit diff --before testdata/example/before.json --after testdata/example/after.json \
   --direction response --consumers testdata/example/consumers.json
 ```

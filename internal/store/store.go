@@ -127,6 +127,10 @@ func (s *Store) Publish(m *manifest.Manifest, manifestSrc string,
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
 		}
+		// Content-addressed copy for env lockfile resolution (Phase 4).
+		if _, err := s.WriteBlob(canon); err != nil {
+			return err
+		}
 		return os.WriteFile(p, append(canon, '\n'), 0o644)
 	}
 	for id, raw := range provides {
