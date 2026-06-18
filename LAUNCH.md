@@ -6,8 +6,8 @@ the rest can be parallelized.
 
 ## 1. Claim the names (do this FIRST — availability was verified 2026-06-09 and is point-in-time)
 
-- [ ] GitHub org `wirefit` + repo `wirefit/wirefit`
-- [ ] npm: publish a placeholder `wirefit` package (and optionally the `@wirefit` scope)
+- [x] GitHub org `wirefit` + repo `wirefit/wirefit`
+- [x] npm: publish a placeholder `wirefit` package (and optionally the `@wirefit` scope)
 - [ ] PyPI: register `wirefit` (placeholder, for the future packaged Python extractor)
 - [ ] crates.io: register `wirefit` (cheap insurance for the Rust extractor)
 - [ ] Domain: `wirefit.dev` (was unregistered at last check)
@@ -15,12 +15,12 @@ the rest can be parallelized.
 
 ## 2. First push + CI green in the real world
 
-- [ ] `git remote add origin git@github.com:wirefit/wirefit.git && git push -u origin master --tags`
+- [x] `git remote add origin git@github.com:wirefit/wirefit.git && git push -u origin master --tags`
 - [ ] Branch protection on `master`: require the `ci` workflow checks
-- [ ] Watch the first CI run — it exercises paths the sandbox could not:
-  - [ ] JDK 25 (Temurin) — local verification was on 17; the floor (`--release 17`) protects compatibility, but confirm
-  - [ ] Node 24 — local was 22
-  - [ ] Gradle job via `setup-gradle` (local run used 8.14.4; Gradle 9.x on runners is expected to work — confirm)
+- [x] Watch the first CI run — it exercises paths the sandbox could not:
+  - [x] JDK 25 (Temurin) — local verification was on 17; the floor (`--release 17`) protects compatibility, but confirm
+  - [x] Node 24 — local was 22
+  - [x] Gradle job via `setup-gradle` (local run used 8.14.4; Gradle 9.x on runners is expected to work — confirm)
   - [ ] Restore executable bits if CI complains: `git update-index --chmod=+x` on the `.sh` files (the dev mount drops them on edit; git modes were committed correctly, so this is likely a non-issue)
 - [ ] Verify the conformance + extractor-test + both demo jobs are green
 
@@ -43,7 +43,7 @@ the rest can be parallelized.
 
 ## 5. Docs polish before announcing
 
-- [ ] README top: 30-second pitch + the killer demo GIF/asciinema (`demo.sh` then `demo-deploy.sh`)
+- [ ] README top: 30-second pitch + the killer demo GIF/asciinema (`run-demo.sh` then `run-deploy-demo.sh` from the wirefit/examples repo)
 - [ ] Add SECURITY.md (binary runs in CI: report channel matters) + issue templates (bug / wrong-classification / new-extractor)
 - [ ] Rule reference page: generate the breaking/safe table per direction from the corpus (PRD open question — even a manual first version)
 - [ ] Comparison table vs Pact / Specmatic / buf / oasdiff / registries (exists in SPEC §1 — surface it in README)

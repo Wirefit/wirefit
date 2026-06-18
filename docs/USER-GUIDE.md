@@ -313,7 +313,7 @@ wirefit closes this with environment lockfiles in the contracts repo:
   never silently green. Records older than `--stale-days` (30) are flagged stale.
 - `matrix` renders the whole org: env × consumer → provider/interaction with ✅/⚠️/🔴.
 
-Run `examples/demo-deploy.sh` to watch the entire scenario.
+Run the deploy demo (`run-deploy-demo.sh`) in [wirefit/examples](https://github.com/wirefit/examples) to watch the entire scenario.
 
 ---
 

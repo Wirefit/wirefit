@@ -1,17 +1,18 @@
 # wirefit demo flow (12–15 minutes)
 
 Presenter script: what to run, what to say, what the audience should feel at each beat.
-Pairs with the slide deck (`wirefit-intro.pptx`). Everything runs offline from the repo —
-rehearse once so the extractor caches are warm and timings hold.
+Pairs with the slide deck (`wirefit-intro.pptx`). The demos live in the
+[wirefit/examples](https://github.com/wirefit/examples) repo and run against an installed
+`wirefit` — rehearse once so the extractor caches are warm and timings hold.
 
 **Prep (before the audience arrives)**
 ```bash
-cd wirefit
-go build -o /tmp/wirefit ./cmd/wirefit          # warm build cache
-./extractors/java/fetch-jars.sh                 # warm jar cache
-./examples/demo.sh >/dev/null 2>&1 || true      # warm extractor caches
+go install github.com/wirefit/wirefit/cmd/wirefit@latest    # put wirefit on PATH
+git clone https://github.com/wirefit/examples wirefit-examples
+cd wirefit-examples
+./run-demo.sh >/dev/null 2>&1 || true                       # warm jar + extractor caches
 ```
-Terminal: large font, dark theme, `cd wirefit`. Slides up to slide 3 before going live.
+Terminal: large font, dark theme, `cd wirefit-examples`. Slides up to slide 3 before going live.
 
 ---
 
@@ -27,8 +28,8 @@ merge. Setup is one YAML file."*
 ## Beat 2 — Onboarding is one file (slide 4, ~2 min)
 
 ```bash
-cat examples/order-service/contracts.yaml
-cat examples/web-app/contracts.yaml
+cat order-service/contracts.yaml
+cat web-app/contracts.yaml
 ```
 Say: *"That's the entire integration. No build-plugin, no spec files, no test code. The
 provider names what it exposes; each consumer names what it reads. Java here — same file
@@ -37,7 +38,7 @@ shape for TypeScript, Zod, Go, Python, or a .proto/.avsc/GraphQL schema."*
 ## Beat 3 — The merge gate, live (slide 5, ~4 min) ⭐
 
 ```bash
-./examples/demo.sh
+./run-demo.sh
 ```
 Narrate while it scrolls (it's fast — pause output reading the highlights):
 1. *"Provider publishes; three consumers register — plain TS interface, a Zod schema, a
@@ -58,7 +59,7 @@ Say first: *"Everything so far compared against main. But production doesn't run
 Here's the failure HEAD-checks can't see."*
 
 ```bash
-./examples/demo-deploy.sh
+./run-deploy-demo.sh
 ```
 Narrate the four moments:
 1. *"Consumer migrates off the field and merges. Provider removes the field. The PR check

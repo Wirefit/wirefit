@@ -41,7 +41,9 @@ jobs:
           go run ./cmd/wirefit extractor-test --cases extractors/python/fixtures/cases.yaml \
             --project extractors/python -- python3 extractors/python/wirefit_extract_py.py
 
-  end-to-end:
+  # Build-system integration fixtures. The end-to-end consumer/provider demos
+  # moved to github.com/wirefit/examples, which runs them against released wirefit.
+  build-system-integration:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,10 +51,6 @@ jobs:
         with: { go-version: '1.24' }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '25' }
-      - uses: actions/setup-node@v4
-        with: { node-version: '24' }
-      - run: examples/demo.sh
-      - run: examples/demo-deploy.sh
       - name: maven classpath auto-resolution
         run: |
           cd examples/maven-service
@@ -73,7 +71,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [go, java-extractor, conformance, end-to-end]
+    needs: [go, java-extractor, conformance, build-system-integration]
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:

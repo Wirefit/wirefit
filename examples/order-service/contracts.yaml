@@ -1,7 +1,0 @@
-service: order-service
-schema-version: 1
-provides:
-  - id: orders.get-order
-    kind: rest
-    direction: response
-    dto: com.acme.orders.OrderResponse

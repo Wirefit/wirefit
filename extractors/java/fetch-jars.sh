@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch the pinned extractor/fixture jars (checksum-verified) into WIREFIT_JARS_DIR.
-# Used by test.sh and examples/demo.sh; `wirefit extract` itself bootstraps its own
-# cache and does not need this.
+# Used by test.sh (and by the demos in the wirefit/examples repo); `wirefit extract`
+# itself bootstraps its own cache and does not need this.
 set -euo pipefail
 JARS="${WIREFIT_JARS_DIR:-/tmp/jars}"
 mkdir -p "$JARS"

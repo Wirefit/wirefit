@@ -5,7 +5,8 @@
 > GitLab CI component (beta), markdown PR/MR reports. Gradle + Maven paths both CI-covered;
 > goreleaser snapshot verified; tsconfig path aliases confirmed working; 14-case corpus.
 > Phase 4: env lockfiles, `record-deploy`, `can-i-deploy` (deployed-state gating with
-> untracked/stale surfacing), `matrix` report — `examples/demo-deploy.sh` proves the
+> untracked/stale surfacing), `matrix` report — the deploy demo in
+> [wirefit/examples](https://github.com/wirefit/examples) proves the
 > HEAD-green-but-deploy-blocked scenario.
 > Toolchain baselines (2026-06): Java 17 bytecode floor (CI on JDK 25), jakarta.annotation
 > in all fixtures (javax matched too, by simple name), Jackson 2.22, TypeScript 6, Node 24 CI.
@@ -45,18 +46,22 @@ ci/gitlab/          GitLab CI component (sticky MR note, beta)
 extractors/java/    Java extractor fixtures, mapping docs, round-trip test
 extractors/typescript/  TS mapping docs (canonical source in internal/tstool)
 action/             GitHub composite action (PR gate + sticky comment)
-examples/           demo.sh acceptance scenario + maven-service integration fixture
+examples/           maven-service + gradle-service build-system integration fixtures
 ```
+
+The end-to-end consumer/provider demos live in a separate repo,
+[wirefit/examples](https://github.com/wirefit/examples), which runs them against released wirefit.
 
 ## Try it
 
 ```
 go test ./...                 # unit + rule corpus
-./examples/demo.sh            # full acceptance scenario (needs go, jdk17+, jackson jars)
-./examples/demo-deploy.sh     # phase 4: can-i-deploy blocks what HEAD checks miss
 go run ./cmd/wirefit diff --before testdata/example/before.json --after testdata/example/after.json \
   --direction response --consumers testdata/example/consumers.json
 ```
+
+For the full acceptance scenario and the deploy-gating demo, see
+[wirefit/examples](https://github.com/wirefit/examples) (`./run-demo.sh`, `./run-deploy-demo.sh`).
 
 Exit codes: `0` ok/warnings · `1` breaking change · `2` config or input error.
 

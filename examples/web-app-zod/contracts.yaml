@@ -1,6 +1,0 @@
-service: web-app-zod
-schema-version: 1
-consumes:
-  - id: orders.get-order
-    provider: order-service
-    dto: src/orderSchema.ts#OrderViewSchema

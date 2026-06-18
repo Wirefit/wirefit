@@ -14,8 +14,10 @@ Thanks for your interest! This project is young — the highest-value contributi
 ```
 go test ./...                  # unit + rule corpus (no Java needed)
 extractors/java/test.sh        # extractor round-trip (needs JDK 17+)
-examples/demo.sh               # full end-to-end acceptance scenario
 ```
+
+The full end-to-end consumer/provider demos live in
+[wirefit/examples](https://github.com/wirefit/examples) and run against a released `wirefit`.
 
 ## Ground rules
 
