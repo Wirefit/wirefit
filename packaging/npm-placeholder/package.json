@@ -1,5 +1,5 @@
 {
-  "name": "wirefit",
+  "name": "@wirefit/cli",
   "version": "0.0.0",
   "description": "Language-agnostic contract checking. Placeholder — the packaged distribution is coming soon. See https://github.com/wirefit/wirefit",
   "keywords": [
