@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wirefit"
+version = "0.0.0"
+description = "Language-agnostic contract checking. Placeholder — the packaged Python extractor is coming soon."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "Apache-2.0"
+authors = [{ name = "wirefit" }]
+keywords = ["contract-testing", "contract-checking", "schema", "api", "breaking-changes", "ci"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/wirefit/wirefit"
+Repository = "https://github.com/wirefit/wirefit"
+Issues = "https://github.com/wirefit/wirefit/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]

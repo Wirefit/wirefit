@@ -1,0 +1,15 @@
+[package]
+name = "wirefit"
+version = "0.0.0"
+edition = "2021"
+description = "Language-agnostic contract checking. Placeholder — the Rust extractor is coming soon."
+license = "Apache-2.0"
+repository = "https://github.com/wirefit/wirefit"
+homepage = "https://github.com/wirefit/wirefit"
+documentation = "https://github.com/wirefit/wirefit"
+readme = "README.md"
+keywords = ["contract-testing", "schema", "api", "ci"]
+categories = ["development-tools::testing"]
+
+[lib]
+path = "src/lib.rs"

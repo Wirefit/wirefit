@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+src/wirefit/__init__.py
+src/wirefit.egg-info/PKG-INFO
+src/wirefit.egg-info/SOURCES.txt
+src/wirefit.egg-info/dependency_links.txt
+src/wirefit.egg-info/top_level.txt
