@@ -1,0 +1,28 @@
+{
+  "name": "wirefit",
+  "version": "0.0.0",
+  "description": "Language-agnostic contract checking. Placeholder — the packaged distribution is coming soon. See https://github.com/wirefit/wirefit",
+  "keywords": [
+    "contract-testing",
+    "contract-checking",
+    "schema",
+    "api",
+    "breaking-changes",
+    "ci"
+  ],
+  "homepage": "https://github.com/wirefit/wirefit#readme",
+  "bugs": {
+    "url": "https://github.com/wirefit/wirefit/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wirefit/wirefit.git"
+  },
+  "license": "Apache-2.0",
+  "files": [
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
