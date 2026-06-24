@@ -9,7 +9,7 @@ the rest can be parallelized.
 - [x] GitHub org `wirefit` + repo `wirefit/wirefit`
 - [x] npm: publish a placeholder `wirefit` package (and optionally the `@wirefit` scope)
 - [x] PyPI: register `wirefit` (placeholder, for the future packaged Python extractor)
-- [ ] crates.io: register `wirefit` (cheap insurance for the Rust extractor)
+- [x] crates.io: register `wirefit` (cheap insurance for the Rust extractor)
 - [ ] Domain: `wirefit.dev` (was unregistered at last check)
 - [ ] Optional: Homebrew tap repo `wirefit/homebrew-tap` (then flip `skip_upload` in `.goreleaser.yaml`)
 

@@ -217,6 +217,62 @@ function dot(s, x, y, color, d = 0.16) {
   });
 }
 
+// ------------------------------------------------- slide 6b: the same thing with Pact (live)
+{
+  const s = pres.addSlide();
+  s.background = { color: PAPER };
+  title(s, "The same scenario — the Pact way", "pact-examples/ · the order-service interaction, run live against a Pact Broker");
+
+  // left: the machinery Pact requires
+  card(s, 0.5, 1.4, 4.3, 3.0);
+  s.addText("What Pact makes you run", { x: 0.75, y: 1.54, w: 3.85, h: 0.3, fontFace: HEAD, fontSize: 14, bold: true, color: INK, margin: 0 });
+  const cost = [
+    ["consumer: mock server + matchers", "web-app — a hand-written interaction test (JS)"],
+    ["provider: replay + state handlers", "order-service — boots the service, one @State each (Java)"],
+    ["a broker service to operate", "192.168.1.191:9292 — publish, verify, query"],
+  ];
+  cost.forEach((r, i) => {
+    const y = 2.0 + i * 0.78;
+    dot(s, 0.78, y + 0.02, RED, 0.13);
+    s.addText(r[0], { x: 1.05, y: y - 0.06, w: 3.55, h: 0.3, fontFace: BODY, fontSize: 12.5, bold: true, color: INK, margin: 0 });
+    s.addText(r[1], { x: 1.05, y: y + 0.21, w: 3.6, h: 0.4, fontFace: BODY, fontSize: 10.5, color: MUTED, margin: 0 });
+  });
+
+  // right: the live broker verdict
+  card(s, 5.2, 1.4, 4.3, 3.0);
+  s.addText("The broker's answer — live", { x: 5.45, y: 1.54, w: 3.85, h: 0.3, fontFace: HEAD, fontSize: 14, bold: true, color: INK, margin: 0 });
+  const states = [
+    [GREEN, "web-app", "verified — green on 1.0.0 & 2.0.0"],
+    [RED, "mobile-app", "failed — 2.0.0 drops loyalty_tier"],
+    [AMBER, "reporting-service", "pending — never verified"],
+  ];
+  states.forEach((r, i) => {
+    const y = 1.98 + i * 0.42;
+    dot(s, 5.46, y + 0.02, r[0], 0.14);
+    s.addText(r[1], { x: 5.74, y: y - 0.04, w: 1.95, h: 0.3, fontFace: MONO, fontSize: 10, bold: true, color: INK, margin: 0 });
+    s.addText(r[2], { x: 7.72, y: y - 0.02, w: 1.78, h: 0.3, fontFace: BODY, fontSize: 9, color: MUTED, margin: 0 });
+  });
+  s.addShape(pres.shapes.LINE, { x: 5.45, y: 3.32, w: 3.8, h: 0, line: { color: "ECE6DB", width: 0.75 } });
+  s.addText("can-i-deploy order-service", { x: 5.45, y: 3.4, w: 3.85, h: 0.26, fontFace: BODY, fontSize: 10.5, italic: true, color: MUTED, margin: 0 });
+  const cid = [
+    ["2.0.0 → production", "NO", RED],
+    ["2.0.0 → staging", "YES", GREEN],
+    ["1.0.0 → production", "YES", GREEN],
+  ];
+  cid.forEach((r, i) => {
+    const y = 3.68 + i * 0.25;
+    s.addText(r[0], { x: 5.6, y, w: 2.7, h: 0.24, fontFace: MONO, fontSize: 10.5, color: INK, margin: 0 });
+    s.addText(r[1], { x: 8.35, y, w: 0.95, h: 0.24, fontFace: MONO, fontSize: 10.5, bold: true, color: r[2], align: "right", margin: 0 });
+  });
+
+  // punchline banner
+  s.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 4.55, w: 9, h: 0.78, fill: { color: SLATE } });
+  s.addText([
+    { text: "Pact reaches this with a broker you run, publish to, and verify against.  ", options: { color: PAPER, bold: true } },
+    { text: "wirefit prints the same deploy matrix from a git repo (slide 6) — same answer, zero servers.", options: { color: "9FB0BD" } },
+  ], { x: 0.8, y: 4.55, w: 8.4, h: 0.78, fontFace: BODY, fontSize: 12.5, margin: 0, valign: "middle" });
+}
+
 // ---------------------------------------------------------------- slide 7: polyglot proof
 {
   const s = pres.addSlide();

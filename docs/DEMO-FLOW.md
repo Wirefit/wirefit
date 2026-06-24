@@ -1,4 +1,4 @@
-# wirefit demo flow (12–15 minutes)
+# wirefit demo flow (14–17 minutes)
 
 Presenter script: what to run, what to say, what the audience should feel at each beat.
 Pairs with the slide deck (`wirefit-intro.pptx`). The demos live in the
@@ -7,11 +7,23 @@ Pairs with the slide deck (`wirefit-intro.pptx`). The demos live in the
 
 **Prep (before the audience arrives)**
 ```bash
-go install github.com/wirefit/wirefit/cmd/wirefit@latest    # put wirefit on PATH
-git clone https://github.com/wirefit/examples wirefit-examples
+# Build wirefit from the source checkout (go install @latest works only once published):
+(cd wirefit && go build -o /usr/local/bin/wirefit ./cmd/wirefit)   # put wirefit on PATH
 cd wirefit-examples
 ./run-demo.sh >/dev/null 2>&1 || true                       # warm jar + extractor caches
 ```
+(If you skip the build, the demo scripts auto-build wirefit from `../wirefit` on first run,
+provided `go` is installed — the first run is just slower.)
+
+To browse the contracts repo live (git history, `_envs/*.lock.json`), point it at a real
+checkout instead of the throwaway temp dir. Your clone of `wirefit-contracts` works and is
+used as-is; `WIREFIT_RESET_REPO=1` resets it to a clean baseline each run so it's reproducible:
+```bash
+export WIREFIT_CONTRACTS_REPO=../wirefit-contracts WIREFIT_RESET_REPO=1
+```
+Heads-up: if that clone has a GitHub remote, every publish pushes to it (needs SSH + network,
+and updates the real repo live — nice for showing GitHub's matrix CI). For a purely offline
+rehearsal, `git -C ../wirefit-contracts remote remove origin` first.
 Terminal: large font, dark theme, `cd wirefit-examples`. Slides up to slide 3 before going live.
 
 ---
@@ -70,7 +82,30 @@ Narrate the four moments:
 4. The matrix table: *"org-wide view of what's compatible with what, where. All of this is
    files in a git repo — there is still no server anywhere in this story."*
 
-## Beat 5 — One gate for everything (slide 7, ~2 min)
+## Beat 4½ — The same thing, the Pact way (slide 6b, ~2 min) ⭐
+
+Optional but high-impact if anyone says *"how is this different from Pact?"* — show the
+Pact version of the very same scenario, running against a real broker.
+
+```bash
+# in the pact-examples repo, broker reachable on the LAN
+cd pact-examples
+node seed-broker.js          # publishes 3 consumers in 3 states + records deployments
+open http://192.168.1.191:9292   # the broker UI: green / red / pending dashboard
+```
+Say: *"This is the identical order-service interaction, done with Pact. Three consumers:
+web-app is **green**, mobile-app **fails** because it needs a field 2.0.0 dropped, reporting
+is **pending** — never verified. And `can-i-deploy order-service 2.0.0 → production` is a
+hard **NO**, because mobile-app is live in prod and 2.0.0 would break it."*
+
+Then snap back: *"That's exactly the answer wirefit gave on the last slide — but Pact gets
+it from a broker you stand up, publish to, and verify against. wirefit reads the same matrix
+out of a git repo. Same safety; one of them is a server you operate."*
+
+Point to `pact-examples/README.md` for the side-by-side: ~60 lines of consumer matcher DSL
++ a provider replay test + the broker, vs wirefit's one `contracts.yaml`.
+
+## Beat 5 — One gate for everything (slide 8, ~2 min)
 
 ```bash
 cat conformance/cases/Scalars/{Scalars.java,Scalars.ts,scalars.go}
@@ -85,7 +120,7 @@ exact field usage."*
 If asked about code/schema drift: show the mirror check —
 `dto` + `schema` on one interaction = both must agree, drift is unoverridable exit 1.
 
-## Beat 6 — Close (slides 8–10, ~1 min)
+## Beat 6 — Close (slides 9–11, ~1 min)
 
 Say: *"Five-minute onboarding per service. A git repo instead of a broker. Direction-aware
 rules with an auditable escape hatch. And the two demos you just watched run in CI on
