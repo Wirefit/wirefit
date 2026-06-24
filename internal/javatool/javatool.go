@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 //go:embed WirefitExtract.java
@@ -41,6 +42,10 @@ var deps = []dep{
 }
 
 const mavenCentral = "https://repo1.maven.org/maven2/"
+
+// Bounded client so a slow/blocked Maven Central fails fast with a clear error
+// instead of hanging the first extract indefinitely (no timeout = silent hang).
+var httpClient = &http.Client{Timeout: 45 * time.Second}
 
 func cacheDir() (string, error) {
 	base, err := os.UserCacheDir()
@@ -88,9 +93,9 @@ func ensureJar(path string, d dep) error {
 	if ok, _ := verify(path, d.sha256); ok {
 		return nil
 	}
-	resp, err := http.Get(mavenCentral + d.path)
+	resp, err := httpClient.Get(mavenCentral + d.path)
 	if err != nil {
-		return fmt.Errorf("download %s: %w", d.file, err)
+		return fmt.Errorf("download %s from Maven Central: %w\n  (set a reachable proxy via HTTPS_PROXY, or pre-place the jar in %s)", d.file, err, filepath.Dir(path))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
