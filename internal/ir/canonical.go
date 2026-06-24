@@ -33,6 +33,28 @@ func Canonicalize(raw []byte) ([]byte, error) {
 	return out, nil
 }
 
+// CanonicalIndent produces the same canonical document as Canonicalize (object
+// keys sorted, number literals verbatim) but pretty-printed with two-space
+// indentation, for human-readable on-disk storage. Hashing always uses the
+// compact Canonicalize form, so indentation never affects a content hash — the
+// stored file can be reformatted freely without changing its address.
+func CanonicalIndent(raw []byte) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("canonical indent: %w", err)
+	}
+	if dec.More() {
+		return nil, fmt.Errorf("canonical indent: trailing data after JSON document")
+	}
+	out, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("canonical indent: %w", err)
+	}
+	return out, nil
+}
+
 // CanonicalizeSchema marshals a Schema to canonical bytes. The schema must
 // already be Normalized.
 func CanonicalizeSchema(s *Schema) ([]byte, error) {

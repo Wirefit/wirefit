@@ -131,7 +131,12 @@ func (s *Store) Publish(m *manifest.Manifest, manifestSrc string,
 		if _, err := s.WriteBlob(canon); err != nil {
 			return err
 		}
-		return os.WriteFile(p, append(canon, '\n'), 0o644)
+		// Stored pretty-printed for readability; the hash is over the compact form.
+		pretty, err := ir.CanonicalIndent(canon)
+		if err != nil {
+			return fmt.Errorf("%s: %w", rel, err)
+		}
+		return os.WriteFile(p, append(pretty, '\n'), 0o644)
 	}
 	for id, raw := range provides {
 		if err := write(filepath.Join("provides", id+".ir.json"), raw); err != nil {

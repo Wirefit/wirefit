@@ -285,13 +285,18 @@ func cmdExtract(args []string) int {
 			fmt.Fprintf(os.Stderr, "wirefit extract: %s: %v\n", fqn, err)
 			return 2
 		}
+		pretty, perr := ir.CanonicalIndent(canon)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "wirefit extract: %s: %v\n", fqn, perr)
+			return 2
+		}
 		for _, rel := range rels {
 			p := filepath.Join(*irDir, rel)
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				fmt.Fprintln(os.Stderr, "wirefit extract:", err)
 				return 2
 			}
-			if err := os.WriteFile(p, append(canon, '\n'), 0o644); err != nil {
+			if err := os.WriteFile(p, append(pretty, '\n'), 0o644); err != nil {
 				fmt.Fprintln(os.Stderr, "wirefit extract:", err)
 				return 2
 			}

@@ -93,7 +93,12 @@ func (s *Store) WriteBlob(raw []byte) (string, error) {
 		return "", err
 	}
 	if _, err := os.Stat(p); os.IsNotExist(err) {
-		if err := os.WriteFile(p, append(canon, '\n'), 0o644); err != nil {
+		// Stored pretty-printed for readability; the address (hash) is over the compact form.
+		pretty, perr := ir.CanonicalIndent(canon)
+		if perr != nil {
+			return "", perr
+		}
+		if err := os.WriteFile(p, append(pretty, '\n'), 0o644); err != nil {
 			return "", err
 		}
 	}
