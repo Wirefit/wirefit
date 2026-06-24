@@ -169,8 +169,12 @@ func (s *Store) commitAndPush(service string) error {
 	if _, err := s.git("add", "-A", filepath.Join("contracts", service)); err != nil {
 		return fmt.Errorf("git add: %w", err)
 	}
-	if out, _ := s.git("status", "--porcelain"); out == "" {
-		return nil // nothing changed
+	// No staged changes for THIS service → idempotent no-op (re-publishing identical
+	// content). We check the staged diff for the service path, not whole-repo status,
+	// so an otherwise-dirty repo (untracked _blobs, other services) doesn't make the
+	// commit fail with "nothing to commit".
+	if _, err := s.git("diff", "--cached", "--quiet", "--", filepath.Join("contracts", service)); err == nil {
+		return nil
 	}
 	if out, err := s.git("commit", "-m", "wirefit publish: "+service); err != nil {
 		return fmt.Errorf("git commit: %s: %w", out, err)
