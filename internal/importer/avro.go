@@ -131,7 +131,11 @@ func avroNode(s avro.Schema, stack []string, ctx string) (node, error) {
 		return node{"type": "array", "items": inner}, nil
 
 	case *avro.MapSchema:
-		return node{"type": "object", "additionalProperties": true}, nil
+		val, err := avroNode(t.Values(), stack, ctx+"{}")
+		if err != nil {
+			return nil, err
+		}
+		return node{"type": "object", "additionalProperties": val}, nil
 
 	case *avro.FixedSchema:
 		if lt := t.Logical(); lt != nil && lt.Type() == avro.Decimal {

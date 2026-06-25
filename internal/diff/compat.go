@@ -109,7 +109,7 @@ func (w *compatWalker) objects(p path, emitter, parser *ir.Schema) {
 		w.node(fp, ef, parser.Properties[name])
 	}
 	if w.opts.StrictParser {
-		parserOpen := parser.AdditionalProperties != nil && *parser.AdditionalProperties
+		parserOpen := parser.AdditionalProperties != nil
 		if !parserOpen {
 			for _, name := range sortedKeys(emitter.Properties) {
 				if parser.Properties[name] == nil {
@@ -117,6 +117,19 @@ func (w *compatWalker) objects(p path, emitter, parser *ir.Schema) {
 						"emitter sends field unknown to a strict parser")
 				}
 			}
+		}
+	}
+
+	// Map value compatibility: an unexpressed emitter value type against a parser
+	// expecting a fixed one is unsafe (mirrors enum-open-vs-closed).
+	if emitter.AdditionalProperties != nil && parser.AdditionalProperties != nil {
+		ev, pv := emitter.MapValue(), parser.MapValue()
+		switch {
+		case ev == nil && pv != nil:
+			w.add(Breaking, "map-value-open-vs-typed", p.mapValue(),
+				"emitter map values are unconstrained but parser expects a fixed value type")
+		case ev != nil && pv != nil:
+			w.node(p.mapValue(), ev, pv)
 		}
 	}
 }

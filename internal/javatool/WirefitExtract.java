@@ -176,10 +176,9 @@ public final class WirefitExtract {
             if (t.getKeyType() != null && t.getKeyType().getRawClass() != String.class) {
                 throw new Unsupported("non-string map key at " + ctx + ": " + t);
             }
-            // IR v1 carries open maps as additionalProperties:true (value type
-            // unexpressed — SPEC open question 2).
+            // Open maps carry their value type (SPEC open question 2, resolved).
             n.put("type", "object");
-            n.put("additionalProperties", true);
+            n.set("additionalProperties", schemaFor(t.getContentType(), stack, ctx + "{}"));
             return n;
         }
         if (raw == Object.class || raw.getName().startsWith("com.fasterxml.jackson.databind.JsonNode")) {

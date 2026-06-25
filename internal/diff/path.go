@@ -10,9 +10,10 @@ import (
 type stepKind byte
 
 const (
-	stepField  stepKind = 'f'
-	stepItems  stepKind = 'i'
-	stepBranch stepKind = 'u'
+	stepField    stepKind = 'f'
+	stepItems    stepKind = 'i'
+	stepBranch   stepKind = 'u'
+	stepMapValue stepKind = 'm'
 )
 
 type step struct {
@@ -31,8 +32,11 @@ func (p path) items() path {
 func (p path) branch(tag string) path {
 	return append(slices.Clone(p), step{stepBranch, tag})
 }
+func (p path) mapValue() path {
+	return append(slices.Clone(p), step{stepMapValue, ""})
+}
 
-// String renders $.a.b[].c and $.pet<dog>.name forms.
+// String renders $.a.b[].c, $.pet<dog>.name and $.attrs{} forms.
 func (p path) String() string {
 	var b strings.Builder
 	b.WriteString("$")
@@ -44,6 +48,8 @@ func (p path) String() string {
 			b.WriteString("[]")
 		case stepBranch:
 			b.WriteString("<" + s.name + ">")
+		case stepMapValue:
+			b.WriteString("{}")
 		}
 	}
 	return b.String()
@@ -74,6 +80,8 @@ func resolve(s *ir.Schema, p path) *ir.Schema {
 				}
 			}
 			cur = found
+		case stepMapValue:
+			cur = cur.MapValue()
 		}
 	}
 	return cur
