@@ -43,7 +43,7 @@ used in CI.
 `boolean → bool`, `byte[] → bytes`, `LocalDate → date`,
 `Instant/OffsetDateTime/ZonedDateTime/LocalDateTime/Date → datetime`, `Duration → duration`,
 enums → string + sorted `enum` values (constant names; `@JsonValue` not yet honored),
-collections/arrays → `array`, `Map<String, _>` → open object (`additionalProperties: true`),
+collections/arrays → `array`, `Map<String, V>` → open object carrying `V` (`additionalProperties: <V schema>`),
 `@JsonTypeInfo(use=NAME, include=PROPERTY)` + closed `@JsonSubTypes` → tagged union,
 recursion → `x-ct-recursive` marker.
 

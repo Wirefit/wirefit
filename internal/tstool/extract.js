@@ -237,7 +237,12 @@ function coreToIR(node, defs, ctx, refStack) {
       const names = Object.keys(props);
       const openValues = node.additionalProperties && node.additionalProperties !== false;
       if (openValues && names.length === 0) {
-        return { type: 'object', additionalProperties: true }; // z.record
+        // z.record(V) carries V's schema; passthrough/unknown gives bare `true`.
+        const valueType =
+          node.additionalProperties === true
+            ? true
+            : jsonSchemaToIR(node.additionalProperties, defs, ctx + '{}', refStack);
+        return { type: 'object', additionalProperties: valueType };
       }
       if (openValues) die(`mixed record and named properties at ${ctx} — not representable`);
       if (names.length === 0) die(`object with no properties at ${ctx}`);
@@ -391,7 +396,7 @@ function schemaForSingle(t, stack, ctx) {
   const stringIndex = checker.getIndexInfoOfType(t, ts.IndexKind.String);
   if (stringIndex) {
     if (props.length > 0) die(`mixed index signature and named properties at ${ctx} — not representable`);
-    return { type: 'object', additionalProperties: true };
+    return { type: 'object', additionalProperties: schemaFor(stringIndex.type, stack, ctx + '{}') };
   }
   if (props.length === 0) {
     if (t.getCallSignatures().length > 0) die(`function type at ${ctx}`);

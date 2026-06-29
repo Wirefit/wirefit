@@ -19,7 +19,7 @@ Mapping notes:
   float → float64 · str → string · bool → bool · UUID → uuid
   datetime → datetime · date → date · timedelta → duration · Decimal → decimal
   X | None → nullable (distinct from optional-by-default, SPEC §7)
-  Literal[...] / str-Enums → enum · dict[str, T] → open object
+  Literal[...] / str-Enums → enum · dict[str, T] → open object carrying T
   Field(discriminator=...) unions → oneOf + lifted discriminator
 Hard errors: Any/object fields, non-string-keyed dicts, tuples, bytes-as-base64
 ambiguity is accepted (bytes → bytes), non-string enums.
@@ -144,9 +144,12 @@ def core_to_ir(node, defs, ctx, ref_stack):
         return {"type": "array", "items": to_ir(node.get("items"), defs, ctx + "[]", ref_stack)}
     if t == "object":
         props = node.get("properties") or {}
-        open_values = node.get("additionalProperties") not in (None, False)
+        ap = node.get("additionalProperties")
+        open_values = ap not in (None, False)
         if open_values and not props:
-            return {"type": "object", "additionalProperties": True}
+            # Dict[str, V] carries V's schema; a bare True dict stays unexpressed.
+            value = True if ap is True else to_ir(ap, defs, ctx + "{}", ref_stack)
+            return {"type": "object", "additionalProperties": value}
         if open_values:
             die(f"mixed dict and named fields at {ctx} — not representable")
         if not props:
