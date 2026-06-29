@@ -20,6 +20,8 @@ import (
 
 var moduleRe = regexp.MustCompile(`(?m)^module\s+(\S+)`)
 
+var typeNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // IsSpec reports whether a manifest dto reference targets the Go extractor.
 func IsSpec(dto string) bool {
 	file, _, ok := strings.Cut(dto, "#")
@@ -46,6 +48,9 @@ func Run(projectDir string, specs []string) (map[string]json.RawMessage, error) 
 	sort.Strings(sorted)
 	for i, spec := range sorted {
 		file, typeName, _ := strings.Cut(spec, "#")
+		if !typeNameRe.MatchString(typeName) {
+			return nil, fmt.Errorf("go extractor: %s: type name %q must be a Go identifier", spec, typeName)
+		}
 		rel := strings.TrimPrefix(file, "./")
 		ip := module
 		if rel != "" && rel != "." {

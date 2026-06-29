@@ -83,6 +83,11 @@ extractor bootstraps itself (embedded source, pinned + SHA-256-verified Jackson 
 compiled once into the user cache). Custom Jackson config (Spring etc.): point
 `settings.java-mapper` at any static `ObjectMapper` provider.
 
+Run `wirefit extract` only against repositories you trust. Extraction may execute the
+target project or its tooling: Java classpath resolution can run `mvnw`/`gradlew`, Go
+extraction runs a generated `go run` inside the module, Zod extraction imports service
+modules, and external extractors are arbitrary commands configured by the manifest.
+
 ## Notes / deliberate v0 choices
 
 - Module path `github.com/wirefit/wirefit` is a placeholder pending the naming decision (PRD §8).
