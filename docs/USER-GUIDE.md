@@ -66,6 +66,12 @@ First extraction self-bootstraps the per-language machinery into your user cache
 (`~/.cache/wirefit/`): pinned, SHA-256-verified Jackson jars compiled against the embedded
 Java extractor; a pinned `typescript` npm install for the TS extractor.
 
+Trust boundary: run `wirefit extract` only against repositories you trust. Extraction may
+execute the target project or its tooling: Java classpath resolution can run
+`mvnw`/`gradlew`, Go extraction runs a generated `go run` inside the module, Zod extraction
+imports service modules, and external extractors are arbitrary commands configured by the
+manifest.
+
 ---
 
 ## 3. Onboarding a service (the whole thing)
@@ -201,9 +207,10 @@ side, optional on the consumer side (io follows the manifest role).
 
 ### 5.4 Go (`extractors/golang/README.md`)
 Reflection via a program generated *inside your module* (`.wirefit/gen/`, transient) — so
-`internal/` packages just work. Pointer → nullable; `,omitempty` → optional; embedded
-structs flatten. No enums/unions (language limitation — use importers for schema-native
-payloads). `uint`/`uint64` and `json.RawMessage` fail loudly.
+`internal/` packages just work. The `#TypeName` selector must be a Go identifier. Pointer
+→ nullable; `,omitempty` → optional; embedded structs flatten. No enums/unions (language
+limitation — use importers for schema-native payloads). `uint`/`uint64` and
+`json.RawMessage` fail loudly.
 
 ### 5.5 Python (`extractors/python/README.md`)
 External extractor speaking protocol v1 — wire it via `extractors:` in the manifest.
