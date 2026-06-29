@@ -73,8 +73,8 @@ enum Status {
 	if got := s.Properties["status"].Enum; len(got) != 3 || got[0] != "ACTIVE" {
 		t.Errorf("enum wrong: %v", got)
 	}
-	if ap := s.Properties["attributes"].AdditionalProperties; ap == nil || !*ap {
-		t.Error("map must be an open object")
+	if mv := s.Properties["attributes"].MapValue(); mv == nil || mv.Scalar != ir.String {
+		t.Errorf("map value type must be carried: %+v", s.Properties["attributes"])
 	}
 }
 
@@ -92,7 +92,8 @@ func TestAvroImporter(t *testing.T) {
         {"name": "sku", "type": "string"},
         {"name": "qty", "type": "int"}
       ]}}},
-    {"name": "createdAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+    {"name": "createdAt", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "labels", "type": {"type": "map", "values": "string"}}
   ]
 }`)
 	s := importIR(t, dir, "order.avsc", Options{})
@@ -102,7 +103,10 @@ func TestAvroImporter(t *testing.T) {
 	if !s.Properties["coupon"].Nullable || !s.IsRequired("coupon") {
 		t.Error("null-union must be required + nullable (Avro always encodes)")
 	}
-	if len(s.Required) != 6 {
+	if mv := s.Properties["labels"].MapValue(); mv == nil || mv.Scalar != ir.String {
+		t.Errorf("avro map value type must be carried: %+v", s.Properties["labels"])
+	}
+	if len(s.Required) != 7 {
 		t.Errorf("all avro fields are required, got %v", s.Required)
 	}
 }

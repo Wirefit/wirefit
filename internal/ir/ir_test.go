@@ -56,6 +56,53 @@ func TestParseNormalizeSortsAndHashesStable(t *testing.T) {
 	}
 }
 
+func TestAdditionalPropertiesValueSchema(t *testing.T) {
+	// Typed map value: the value schema round-trips and is reachable.
+	s, err := Parse([]byte(`{"type":"object","additionalProperties":{"type":"string","x-ct-scalar":"string"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mv := s.MapValue(); mv == nil || mv.Scalar != String {
+		t.Fatalf("map value type not carried: %+v", s)
+	}
+	// map<string,string> and map<string,int32> must hash differently.
+	hStr, _ := HashSchema(s)
+	si, _ := Parse([]byte(`{"type":"object","additionalProperties":{"type":"integer","x-ct-scalar":"int32"}}`))
+	hInt, _ := HashSchema(si)
+	if hStr == hInt {
+		t.Fatal("differently-typed maps hash identically — value type still discarded")
+	}
+
+	// Bare `true` survives as an untyped open map (nil value).
+	open, err := Parse([]byte(`{"type":"object","additionalProperties":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if open.AdditionalProperties == nil || open.MapValue() != nil {
+		t.Fatalf("untyped open map mishandled: %+v", open)
+	}
+
+	// `false` collapses to the canonical closed form (nil pointer).
+	closed, err := Parse([]byte(`{"type":"object","properties":{"a":{"x-ct-scalar":"string"}},"additionalProperties":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed.AdditionalProperties != nil {
+		t.Fatalf("additionalProperties:false must collapse to closed: %+v", closed)
+	}
+
+	// A bad map value schema is rejected, and unknown keywords inside it are
+	// rejected too — strictness is preserved through the custom unmarshaler.
+	for _, bad := range []string{
+		`{"type":"object","additionalProperties":{"x-ct-scalar":"long"}}`,
+		`{"type":"object","additionalProperties":{"type":"string","bogus":1}}`,
+	} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("expected error for %s", bad)
+		}
+	}
+}
+
 func TestParseRejectsUnknownKeywordsAndBadIR(t *testing.T) {
 	cases := []string{
 		`{"type":"object","format":"weird"}`,                     // unknown keyword

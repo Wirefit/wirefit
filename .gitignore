@@ -8,3 +8,4 @@ build/
 .gradle/
 .wirefit/
 wirefit-overrides.yaml
+__pycache__/

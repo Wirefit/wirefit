@@ -25,8 +25,60 @@ type Schema struct {
 	OneOf              []*Schema          `json:"oneOf,omitempty"`
 	Discriminator      string             `json:"x-ct-discriminator,omitempty"`
 	DiscriminatorValue string             `json:"x-ct-discriminator-value,omitempty"`
-	// AdditionalProperties: nil = unspecified (treated closed), true = open map.
-	AdditionalProperties *bool `json:"additionalProperties,omitempty"`
+	// AdditionalProperties: nil = closed object; non-nil = open map.
+	AdditionalProperties *AdditionalProps `json:"additionalProperties,omitempty"`
+}
+
+// AdditionalProps is an open map's additionalProperties. It marshals as either
+// `true` (value type unexpressed) or a schema (the typed map value). Resolving
+// SPEC open-question-2, every extractor now emits the value schema; bare `true`
+// survives only for legacy / genuinely untyped maps.
+type AdditionalProps struct {
+	// Value is the map value schema, or nil when the value type is unexpressed.
+	Value *Schema
+	// closed records an explicit additionalProperties:false, which Normalize
+	// collapses to the canonical closed form (a nil parent pointer).
+	closed bool
+}
+
+func (ap AdditionalProps) MarshalJSON() ([]byte, error) {
+	if ap.closed {
+		return []byte("false"), nil
+	}
+	if ap.Value != nil {
+		return json.Marshal(ap.Value)
+	}
+	return []byte("true"), nil
+}
+
+func (ap *AdditionalProps) UnmarshalJSON(data []byte) error {
+	switch strings.TrimSpace(string(data)) {
+	case "true":
+		ap.Value = nil
+		return nil
+	case "false":
+		ap.closed = true
+		return nil
+	}
+	// Decode the value schema strictly: a custom unmarshaler otherwise loses the
+	// DisallowUnknownFields that Parse applies to the rest of the document.
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.DisallowUnknownFields()
+	var s Schema
+	if err := dec.Decode(&s); err != nil {
+		return fmt.Errorf("additionalProperties: %w", err)
+	}
+	ap.Value = &s
+	return nil
+}
+
+// MapValue returns the open map's value schema, or nil if the object is closed
+// or its value type is unexpressed.
+func (s *Schema) MapValue() *Schema {
+	if s == nil || s.AdditionalProperties == nil {
+		return nil
+	}
+	return s.AdditionalProperties.Value
 }
 
 // JSONKind returns the structural kind used for type-changed detection:
@@ -73,6 +125,13 @@ func (s *Schema) Normalize() {
 	slices.SortFunc(s.OneOf, func(a, b *Schema) int {
 		return strings.Compare(a.DiscriminatorValue, b.DiscriminatorValue)
 	})
+	if s.AdditionalProperties != nil {
+		if s.AdditionalProperties.closed {
+			s.AdditionalProperties = nil
+		} else {
+			s.AdditionalProperties.Value.Normalize()
+		}
+	}
 	if s.Scalar != "" && s.Type == "" {
 		s.Type = s.Scalar.JSONType()
 	}
@@ -105,6 +164,11 @@ func (s *Schema) Validate() error {
 	if s.Items != nil {
 		if err := s.Items.Validate(); err != nil {
 			return fmt.Errorf("items: %w", err)
+		}
+	}
+	if v := s.MapValue(); v != nil {
+		if err := v.Validate(); err != nil {
+			return fmt.Errorf("additionalProperties: %w", err)
 		}
 	}
 	if len(s.OneOf) > 0 {

@@ -25,7 +25,7 @@ Canonical source: `internal/tstool/extract.js`.
 | `\| null` | `x-ct-nullable` — **distinct from optional** (SPEC §7) |
 | string-literal unions / string enums | `enum` (sorted) |
 | `T[]` / `Array<T>` | `array` |
-| `Record<string, _>` / string index signature | open object (`additionalProperties: true`) |
+| `Record<string, V>` / string index signature | open object carrying `V` (`additionalProperties: <V schema>`) |
 | discriminated unions (shared literal discriminant) | `oneOf`; the discriminant property is lifted to the union level, matching the Java extractor |
 | `Pick`/`Omit`/`Partial`/`Required`/intersections | resolved by the checker before mapping |
 | recursion | `x-ct-recursive` marker |

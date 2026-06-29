@@ -114,7 +114,11 @@ func protoField(f protoreflect.FieldDescriptor, stack []protoreflect.FullName, c
 		if f.MapKey().Kind() != protoreflect.StringKind {
 			return nil, false, fmt.Errorf("non-string map key at %s", ctx)
 		}
-		return node{"type": "object", "additionalProperties": true}, true, nil
+		val, _, err := protoSingular(f.MapValue(), stack, ctx+"{}")
+		if err != nil {
+			return nil, false, err
+		}
+		return node{"type": "object", "additionalProperties": val}, true, nil
 	}
 	if f.IsList() {
 		inner, _, err := protoSingular(f, stack, ctx+"[]")

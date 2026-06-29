@@ -50,6 +50,11 @@ const (
 		{"type":"object","x-ct-discriminator-value":"cat","properties":{"lives":{"x-ct-scalar":"int32"}}},
 		{"type":"object","x-ct-discriminator-value":"dog","properties":{"barks":{"x-ct-scalar":"bool"}}}]}},"required":["pet"]}`
 
+	mapStr     = `{"type":"object","properties":{"attrs":{"type":"object","additionalProperties":{"x-ct-scalar":"string"}}},"required":["attrs"]}`
+	mapI32     = `{"type":"object","properties":{"attrs":{"type":"object","additionalProperties":{"x-ct-scalar":"int32"}}},"required":["attrs"]}`
+	mapOpen    = `{"type":"object","properties":{"attrs":{"type":"object","additionalProperties":true}},"required":["attrs"]}`
+	readsAttrs = `{"type":"object","properties":{"attrs":{"type":"object","additionalProperties":{"x-ct-scalar":"string"}}},"required":["attrs"]}`
+
 	idAsInt      = `{"type":"object","properties":{"id":{"x-ct-scalar":"int32"},"email":{"x-ct-scalar":"string"}},"required":["email","id"]}`
 	withPhone    = `{"type":"object","properties":{"id":{"x-ct-scalar":"uuid"},"email":{"x-ct-scalar":"string"},"phone":{"x-ct-scalar":"string"}},"required":["email","id"]}`
 	withReqPhone = `{"type":"object","properties":{"id":{"x-ct-scalar":"uuid"},"email":{"x-ct-scalar":"string"},"phone":{"x-ct-scalar":"string"}},"required":["email","id","phone"]}`
@@ -124,6 +129,15 @@ func TestSelfDiffRuleCorpus(t *testing.T) {
 		{name: "p2c union branch removed is safe", dir: P2C, before: petCatDogBird, after: petCatDog,
 			consumers: map[string]string{"web": readsPet},
 			want:      []string{"safe union-branch-removed $.pet<bird>"}},
+		{name: "p2c map value type change is breaking", dir: P2C, before: mapStr, after: mapI32,
+			consumers: map[string]string{"web": readsAttrs},
+			want:      []string{"breaking type-changed $.attrs{}"}},
+		{name: "p2c map value typed→unconstrained widens", dir: P2C, before: mapStr, after: mapOpen,
+			consumers: map[string]string{"web": readsAttrs},
+			want:      []string{"breaking map-value-opened $.attrs{}"}},
+		{name: "p2c map value unconstrained→typed narrows (safe)", dir: P2C, before: mapOpen, after: mapStr,
+			consumers: map[string]string{"web": readsAttrs},
+			want:      []string{"safe map-value-restricted $.attrs{}"}},
 
 		// ---- C→P: consumers emit, provider parses (requests, commands) ----
 		{name: "c2p required field added breaks non-senders", dir: C2P, before: objIDEmail, after: withReqPhone,
@@ -162,6 +176,12 @@ func TestSelfDiffRuleCorpus(t *testing.T) {
 		{name: "c2p nullable accepted then rejected is breaking", dir: C2P, before: emailNullable, after: objIDEmail,
 			consumers: map[string]string{"web": sendsIDEmail},
 			want:      []string{"breaking nullable-removed $.email"}},
+		{name: "c2p map value type change is breaking", dir: C2P, before: mapStr, after: mapI32,
+			consumers: map[string]string{"web": readsAttrs},
+			want:      []string{"breaking type-changed $.attrs{}"}},
+		{name: "c2p map value unconstrained→typed narrows accepted set", dir: C2P, before: mapOpen, after: mapStr,
+			consumers: map[string]string{"web": readsAttrs},
+			want:      []string{"breaking map-value-restricted $.attrs{}"}},
 	}
 
 	for _, tc := range cases {
