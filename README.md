@@ -103,6 +103,12 @@ extractor bootstraps itself (embedded source, pinned + SHA-256-verified Jackson 
 compiled once into the user cache). Custom Jackson config (Spring etc.): point
 `settings.java-mapper` at any static `ObjectMapper` provider.
 
+
+Run `wirefit extract` only against repositories you trust. Extraction may execute the
+target project or its tooling: Java classpath resolution can run `mvnw`/`gradlew`, Go
+extraction runs a generated `go run` inside the module, Zod extraction imports service
+modules, and external extractors are arbitrary commands configured by the manifest.
+
 ## Deploy gating & the matrix
 
 The merge gate (`check`) compares against `main`. Deployment gating compares against what is
@@ -120,6 +126,7 @@ when the merge gate is green. `matrix` prints the org-wide deployed-compatibilit
 Stored IR (`contracts/**/*.ir.json`, `_blobs/`) is pretty-printed for readability — its content
 hash is over the compact canonical form, so formatting never affects addressing or diffs. A
 re-publish of an unchanged contract is an idempotent no-op.
+
 
 ## Notes / deliberate v0 choices
 

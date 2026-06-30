@@ -3,6 +3,8 @@
 Reflection over struct tags, executed by a **generated program inside the service module**
 (`.wirefit/gen/`, transient) — which is why `internal/` DTO packages just work, with the
 service's own toolchain (PRD 3.1; canonical template in `internal/gotool/gotool.go`).
+Run it only against repositories you trust: extraction executes `go run` inside the target
+module, so normal package initialization and build behavior apply.
 
 ## Manifest reference format
 
@@ -13,6 +15,8 @@ provides:
     direction: response
     dto: ./internal/api#OrderResponse   # ./package/path#TypeName
 ```
+
+`TypeName` must be a Go identifier.
 
 ## Mapping
 
