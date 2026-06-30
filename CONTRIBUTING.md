@@ -28,6 +28,12 @@ The full end-to-end consumer/provider demos live in
   in the same PR.
 - Extractor behavior must mirror what the serializer actually does. When Jackson and the
   spec disagree, Jackson wins and the spec gets fixed.
+- Built-in extractors (`internal/gotool`, `internal/javatool`, `internal/tstool`) share
+  their subprocess + cache plumbing via `internal/extrun`: run the child process through
+  `extrun.Run` and bootstrap the user cache through `extrun.CacheDir`. Don't re-inline
+  either, so invocation changes (timeouts, error handling, output limits) land in one place.
+  Adding a *third-party* extractor instead? That's the frozen wire protocol: see
+  [docs/extractor-protocol.md](docs/extractor-protocol.md), no WireFit source required.
 
 ## Conduct
 
