@@ -202,7 +202,8 @@ func schemaFor(t reflect.Type, stack []reflect.Type, ctx string) map[string]any 
 		if t.Key().Kind() != reflect.String {
 			fail("non-string map key at %s", ctx)
 		}
-		return map[string]any{"type": "object", "additionalProperties": true}
+		return map[string]any{"type": "object",
+			"additionalProperties": schemaFor(t.Elem(), stack, ctx+"{}")}
 	case reflect.Interface:
 		fail("interface type at %s — Go has no checkable union representation yet (Phase 5 importers)", ctx)
 	case reflect.Struct:

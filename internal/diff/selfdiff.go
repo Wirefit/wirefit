@@ -206,13 +206,26 @@ func (w *selfWalker) enums(p path, b, a *ir.Schema) {
 
 func (w *selfWalker) objects(p path, b, a *ir.Schema) {
 	// Open-map flips.
-	bOpen := b.AdditionalProperties != nil && *b.AdditionalProperties
-	aOpen := a.AdditionalProperties != nil && *a.AdditionalProperties
+	bOpen := b.AdditionalProperties != nil
+	aOpen := a.AdditionalProperties != nil
 	if !bOpen && aOpen {
 		w.widen("additional-properties-opened", p, "object now allows arbitrary additional properties")
 	}
 	if bOpen && !aOpen {
 		w.narrow("additional-properties-closed", p, "object no longer allows additional properties")
+	}
+	// Map value type changes (both still open maps): constraining the value type
+	// narrows, opening it widens — mirroring enum open/closed.
+	if bOpen && aOpen {
+		bv, av := b.MapValue(), a.MapValue()
+		switch {
+		case bv == nil && av != nil:
+			w.narrow("map-value-restricted", p.mapValue(), "map values were unconstrained, now a fixed type")
+		case bv != nil && av == nil:
+			w.widen("map-value-opened", p.mapValue(), "map values were a fixed type, now unconstrained")
+		case bv != nil && av != nil:
+			w.node(p.mapValue(), bv, av)
+		}
 	}
 
 	for _, name := range sortedKeys(b.Properties) {

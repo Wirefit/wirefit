@@ -32,7 +32,7 @@ provides → `mode="serialization"` (defaults are always emitted → required).
 beyond it use `Decimal`/`str`) · `float → float64` · `str → string` · `bool → bool` ·
 `UUID → uuid` · `datetime → datetime` · `date → date` · `timedelta → duration` ·
 `X | None → nullable` (distinct from optional-by-default, SPEC §7) ·
-`Literal[...]`/str-enums → `enum` · `dict[str, T]` → open object ·
+`Literal[...]`/str-enums → `enum` · `dict[str, T]` → open object carrying `T` ·
 `list[T]` → array · nested models + self-references → recursion markers ·
 `Field(discriminator=...)` unions → `oneOf` with lifted discriminator ·
 union type aliases supported via `TypeAdapter` (point the spec at the alias name).
