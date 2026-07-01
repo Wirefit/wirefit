@@ -1,13 +1,16 @@
 package extrun
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"testing"
 )
 
 func TestRunRejectsNonJSONOutput(t *testing.T) {
-	_, err := Run("go", exec.Command("printf", "oops"))
+	_, err := Run("go", func(ctx context.Context) *exec.Cmd {
+		return exec.CommandContext(ctx, "printf", "oops")
+	})
 	if err == nil {
 		t.Fatal("expected an error for non-JSON extractor output")
 	}
@@ -17,7 +20,9 @@ func TestRunRejectsNonJSONOutput(t *testing.T) {
 }
 
 func TestRunReturnsSchemaMap(t *testing.T) {
-	out, err := Run("go", exec.Command("printf", `{"x#T":{"type":"string"}}`))
+	out, err := Run("go", func(ctx context.Context) *exec.Cmd {
+		return exec.CommandContext(ctx, "printf", `{"x#T":{"type":"string"}}`)
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

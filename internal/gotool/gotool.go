@@ -7,6 +7,7 @@
 package gotool
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -86,9 +87,11 @@ func Run(projectDir string, specs []string) (map[string]json.RawMessage, error) 
 	}
 	defer os.RemoveAll(filepath.Join(projectDir, ".wirefit", "gen"))
 
-	cmd := exec.Command("go", "run", "./.wirefit/gen/extract")
-	cmd.Dir = projectDir
-	return extrun.Run("go", cmd)
+	return extrun.Run("go", func(ctx context.Context) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, "go", "run", "./.wirefit/gen/extract")
+		cmd.Dir = projectDir
+		return cmd
+	})
 }
 
 // program is the generated reflection walker. Stdlib only; deterministic

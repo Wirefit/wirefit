@@ -356,7 +356,7 @@ func cmdCheck(args []string) int {
 		}
 		r := diff.Self(published, candidate, diff.SelfOptions{
 			Direction:              dir,
-			Consumers:              consumers,
+			Consumers:              diffConsumers(consumers),
 			ProviderRejectsUnknown: m.RejectsUnknown(),
 			ColdStart:              len(consumers) == 0,
 		})

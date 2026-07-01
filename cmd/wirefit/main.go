@@ -12,6 +12,7 @@ import (
 	"github.com/wirefit/wirefit/internal/diff"
 	"github.com/wirefit/wirefit/internal/ir"
 	"github.com/wirefit/wirefit/internal/manifest"
+	"github.com/wirefit/wirefit/internal/store"
 )
 
 const version = "0.1.0-dev"
@@ -84,9 +85,8 @@ usage: wirefit <command> [flags]
   record-deploy   pin this service's published contracts as deployed in an env
   can-i-deploy    check the candidate against what is DEPLOYED in an env
   matrix          render the deployed compatibility matrix across envs
+  init       scaffold a contracts.yaml manifest for this project
   version    print version
-
-not yet implemented: init
 `)
 }
 
@@ -158,6 +158,16 @@ func loadConsumers(path string) (map[string]diff.Consumer, error) {
 		out[name] = diff.Consumer{Schema: s, RejectUnknown: e.RejectUnknown}
 	}
 	return out, nil
+}
+
+// diffConsumers translates the store's consumer projections into the diff
+// layer's Consumer type (the store deliberately does not depend on diff).
+func diffConsumers(in map[string]store.Consumer) map[string]diff.Consumer {
+	out := make(map[string]diff.Consumer, len(in))
+	for name, c := range in {
+		out[name] = diff.Consumer{Schema: c.Schema, RejectUnknown: c.RejectUnknown}
+	}
+	return out
 }
 
 func cmdDiff(args []string) int {

@@ -6,6 +6,7 @@
 package javatool
 
 import (
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wirefit/wirefit/internal/extrun"
@@ -95,7 +97,9 @@ func Run(opts RunOptions, fqns []string) (map[string]json.RawMessage, error) {
 	}
 	javaArgs = append(javaArgs, "io.wirefit.extract.WirefitExtract")
 	javaArgs = append(javaArgs, fqns...)
-	return extrun.Run("java", exec.Command(opts.JavaBin, javaArgs...))
+	return extrun.Run("java", func(ctx context.Context) *exec.Cmd {
+		return exec.CommandContext(ctx, opts.JavaBin, javaArgs...)
+	})
 }
 
 // EnsureExtractor returns the classpath (WirefitExtract classes + Jackson jars)
@@ -110,13 +114,25 @@ func EnsureExtractor() (string, error) {
 	classes := filepath.Join(dir, "classes")
 	parts = append(parts, classes)
 
-	var jarPaths []string
-	for _, d := range deps {
-		p := filepath.Join(dir, d.file)
-		if err := ensureJar(p, d); err != nil {
+	// Fetch the jars concurrently; each ensureJar verifies its own checksum, so
+	// order is irrelevant. jarPaths stays index-aligned with deps for a stable,
+	// deterministic classpath regardless of which download finishes first.
+	jarPaths := make([]string, len(deps))
+	errs := make([]error, len(deps))
+	var wg sync.WaitGroup
+	for i, d := range deps {
+		jarPaths[i] = filepath.Join(dir, d.file)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = ensureJar(jarPaths[i], d)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
 			return "", err
 		}
-		jarPaths = append(jarPaths, p)
 	}
 	parts = append(parts, jarPaths...)
 
@@ -146,12 +162,23 @@ func ensureJar(path string, d dep) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	// Cap the download: the checksum runs only after the copy completes, so an
+	// oversized (malicious or misconfigured) response must not fill the disk
+	// first. The Jackson jars are a few MB; 64 MiB is comfortable headroom.
+	const maxJar = 64 << 20
+	n, err := io.Copy(f, io.LimitReader(resp.Body, maxJar+1))
+	if err != nil {
 		f.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return err
+	}
+	if n > maxJar {
+		os.Remove(tmp)
+		return fmt.Errorf("download %s exceeds %d bytes: refusing to use it", d.file, maxJar)
 	}
 	if ok, sum := verify(tmp, d.sha256); !ok {
 		os.Remove(tmp)

@@ -1,11 +1,14 @@
 package javatool
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/wirefit/wirefit/internal/extrun"
 )
 
 // DetectTool inspects a project directory: "maven", "gradle" or "" (unknown).
@@ -62,13 +65,18 @@ func mavenClasspath(dir string) (string, error) {
 	out.Close()
 	defer os.Remove(outPath)
 
+	ctx, cancel := context.WithTimeout(context.Background(), extrun.DefaultTimeout)
+	defer cancel()
 	mvn := wrapper(dir, "mvnw", "mvn")
-	cmd := exec.Command(mvn, "-q", "-DskipTests",
+	cmd := exec.CommandContext(ctx, mvn, "-q", "-DskipTests",
 		"dependency:build-classpath",
 		"-Dmdep.outputFile="+outPath,
 		"-Dmdep.includeScope=runtime")
 	cmd.Dir = dir
 	if msg, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("maven classpath resolution timed out after %s", extrun.DefaultTimeout)
+		}
 		return "", fmt.Errorf("maven classpath resolution failed: %s: %w", firstLines(msg, 15), err)
 	}
 	depCP, err := os.ReadFile(outPath)
@@ -111,11 +119,16 @@ func gradleClasspath(dir string) (string, error) {
 	init.Close()
 	defer os.Remove(initPath)
 
+	ctx, cancel := context.WithTimeout(context.Background(), extrun.DefaultTimeout)
+	defer cancel()
 	gradle := wrapper(dir, "gradlew", "gradle")
-	cmd := exec.Command(gradle, "-q", "--console=plain", "--init-script", initPath, "wirefitClasspath")
+	cmd := exec.CommandContext(ctx, gradle, "-q", "--console=plain", "--init-script", initPath, "wirefitClasspath")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("gradle classpath resolution timed out after %s", extrun.DefaultTimeout)
+		}
 		return "", fmt.Errorf("gradle classpath resolution failed: %s: %w", firstLines(out, 15), err)
 	}
 	var parts []string
