@@ -133,7 +133,7 @@ func (r *Result) applyColdStart() {
 		if r.Findings[i].Class == Breaking {
 			r.Findings[i].Class = Warning
 			r.Findings[i].ColdStart = true
-			r.Findings[i].Message += " — cold start: no consumers registered, not enforced"
+			r.Findings[i].Message += " (cold start: no consumers registered, not enforced)"
 		}
 	}
 }

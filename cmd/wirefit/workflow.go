@@ -58,7 +58,7 @@ func cmdExtract(args []string) int {
 	fs := flag.NewFlagSet("extract", flag.ContinueOnError)
 	mf := fs.String("f", "contracts.yaml", "manifest file")
 	classpath := fs.String("classpath", "", "java: service classpath override (skips build-tool resolution)")
-	buildTool := fs.String("build-tool", "auto", "java: auto|maven|gradle|none — how to resolve the service classpath")
+	buildTool := fs.String("build-tool", "auto", "java: auto|maven|gradle|none (how to resolve the service classpath)")
 	projectDir := fs.String("project", ".", "service project directory")
 	extractorCP := fs.String("extractor-cp", os.Getenv("WIREFIT_EXTRACTOR_CP"),
 		"override for WirefitExtract+jackson classpath (default: self-bootstrapped cache)")
@@ -138,7 +138,7 @@ func cmdExtract(args []string) int {
 		case !isTSSpec(dto):
 			javaFQNs = append(javaFQNs, dto)
 		case provided[dto] && consumed[dto]:
-			fmt.Fprintf(os.Stderr, "wirefit extract: %s is used in both provides and consumes — split the schema (zod io semantics differ per side)\n", dto)
+			fmt.Fprintf(os.Stderr, "wirefit extract: %s is used in both provides and consumes; split the schema (zod io semantics differ per side)\n", dto)
 			return 2
 		case provided[dto]:
 			tsProvided = append(tsProvided, dto)
@@ -231,7 +231,7 @@ func cmdExtract(args []string) int {
 		hs, _ := ir.HashSchema(schemaIR)
 		hd, _ := ir.HashSchema(dtoIR)
 		if hs != hd {
-			fmt.Fprintf(os.Stderr, "wirefit extract: MIRROR DRIFT on %s — %s and %s disagree:\n", p.ID, p.Schema, p.DTO)
+			fmt.Fprintf(os.Stderr, "wirefit extract: MIRROR DRIFT on %s: %s and %s disagree:\n", p.ID, p.Schema, p.DTO)
 			dir, _ := diff.ParseDirection(p.Direction)
 			r := diff.Self(schemaIR, dtoIR, diff.SelfOptions{Direction: dir})
 			for _, f := range r.Findings {
@@ -273,7 +273,7 @@ func cmdExtract(args []string) int {
 			}
 		}
 	}
-	fmt.Printf("extracted %d schema(s) into %s\n", len(targets), *irDir)
+	fmt.Printf("extracted %s into %s\n", plural(len(targets), "schema"), *irDir)
 	return 0
 }
 
@@ -334,7 +334,7 @@ func cmdCheck(args []string) int {
 		}
 		candidate, err := ir.Load(filepath.Join(*irDir, "provides", p.ID+".ir.json"))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit check: missing candidate IR for %s — run `wirefit extract` first (%v)\n", p.ID, err)
+			fmt.Fprintf(os.Stderr, "wirefit check: missing candidate IR for %s; run `wirefit extract` first (%v)\n", p.ID, err)
 			return 2
 		}
 		published, ok, err := st.ProviderIR(m.Service, p.ID)
@@ -350,7 +350,7 @@ func cmdCheck(args []string) int {
 		if !ok {
 			results["provides "+p.ID] = &diff.Result{Direction: dir, Findings: []diff.Finding{{
 				Class: diff.Neutral, Rule: "new-interaction", Path: "$",
-				Message: "not yet published — first publish will register it",
+				Message: "not yet published; first publish will register it",
 			}}}
 			continue
 		}
@@ -372,7 +372,7 @@ func cmdCheck(args []string) int {
 	for _, c := range m.Consumes {
 		mine, err := ir.Load(filepath.Join(*irDir, "consumes", c.Provider, c.ID+".ir.json"))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit check: missing candidate IR for consumed %s/%s — run `wirefit extract` first (%v)\n", c.Provider, c.ID, err)
+			fmt.Fprintf(os.Stderr, "wirefit check: missing candidate IR for consumed %s/%s; run `wirefit extract` first (%v)\n", c.Provider, c.ID, err)
 			return 2
 		}
 		key := "consumes " + c.Provider + "/" + c.ID
@@ -384,7 +384,7 @@ func cmdCheck(args []string) int {
 		if !ok {
 			results[key] = &diff.Result{Findings: []diff.Finding{{
 				Class: diff.Warning, Rule: "provider-unpublished", Path: "$",
-				Message: "provider has not published this interaction — nothing to check against",
+				Message: "provider has not published this interaction; nothing to check against",
 			}}}
 			continue
 		}
@@ -435,7 +435,7 @@ func cmdCheck(args []string) int {
 		for _, o := range stale {
 			sr.Findings = append(sr.Findings, diff.Finding{
 				Class: diff.Breaking, Rule: "override-stale", Path: o.Path,
-				Message: fmt.Sprintf("override on %s/%s matched no finding — remove it (%s)",
+				Message: fmt.Sprintf("override on %s/%s matched no finding; remove it (%s)",
 					o.Interaction, o.Rule, o.Justification),
 			})
 		}
@@ -460,16 +460,7 @@ func cmdCheck(args []string) int {
 		_ = enc.Encode(results)
 		return worst
 	}
-	for _, key := range sortedResultKeys(results) {
-		fmt.Printf("— %s\n", key)
-		printResult(results[key], "text")
-		fmt.Println()
-	}
-	if worst == 0 {
-		fmt.Println("wirefit check: all interactions compatible")
-	} else {
-		fmt.Println("wirefit check: BREAKING changes found")
-	}
+	printCheck(m.Service, results, worst)
 	return worst
 }
 
@@ -515,7 +506,7 @@ func cmdPublish(args []string) int {
 	for _, p := range m.Provides {
 		raw, err := os.ReadFile(filepath.Join(*irDir, "provides", p.ID+".ir.json"))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit publish: missing IR for %s — run `wirefit extract` first\n", p.ID)
+			fmt.Fprintf(os.Stderr, "wirefit publish: missing IR for %s; run `wirefit extract` first\n", p.ID)
 			return 2
 		}
 		provides[p.ID] = raw
@@ -524,7 +515,7 @@ func cmdPublish(args []string) int {
 	for _, c := range m.Consumes {
 		raw, err := os.ReadFile(filepath.Join(*irDir, "consumes", c.Provider, c.ID+".ir.json"))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit publish: missing IR for consumed %s/%s — run `wirefit extract` first\n", c.Provider, c.ID)
+			fmt.Fprintf(os.Stderr, "wirefit publish: missing IR for consumed %s/%s; run `wirefit extract` first\n", c.Provider, c.ID)
 			return 2
 		}
 		if consumes[c.Provider] == nil {
@@ -536,7 +527,7 @@ func cmdPublish(args []string) int {
 		fmt.Fprintln(os.Stderr, "wirefit publish:", err)
 		return 2
 	}
-	fmt.Printf("published %s: %d provided, %d consumed interaction(s)\n",
+	fmt.Printf("published %s: %d provided, %d consumed\n",
 		m.Service, len(provides), len(m.Consumes))
 	return 0
 }

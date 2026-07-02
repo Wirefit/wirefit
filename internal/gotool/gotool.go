@@ -164,7 +164,7 @@ func schemaFor(t reflect.Type, stack []reflect.Type, ctx string) map[string]any 
 	case t.Name() == "UUID" && strings.HasSuffix(t.PkgPath(), "github.com/google/uuid"):
 		return scalar("uuid")
 	case t == rawType:
-		fail("json.RawMessage at %s — opaque payloads cannot be contract-checked", ctx)
+		fail("json.RawMessage at %s: opaque payloads cannot be contract-checked", ctx)
 	}
 	switch t.Kind() {
 	case reflect.String:
@@ -176,7 +176,7 @@ func schemaFor(t reflect.Type, stack []reflect.Type, ctx string) map[string]any 
 	case reflect.Int64, reflect.Uint32:
 		return scalar("int64")
 	case reflect.Uint, reflect.Uint64:
-		fail("%s at %s may exceed int64 — use a signed type for contract fields", t.Kind(), ctx)
+		fail("%s at %s may exceed int64; use a signed type for contract fields", t.Kind(), ctx)
 	case reflect.Float32:
 		return scalar("float32")
 	case reflect.Float64:
@@ -197,7 +197,7 @@ func schemaFor(t reflect.Type, stack []reflect.Type, ctx string) map[string]any 
 		return map[string]any{"type": "object",
 			"additionalProperties": schemaFor(t.Elem(), stack, ctx+"{}")}
 	case reflect.Interface:
-		fail("interface type at %s — Go has no checkable union representation yet (Phase 5 importers)", ctx)
+		fail("interface type at %s: Go has no checkable union representation yet (Phase 5 importers)", ctx)
 	case reflect.Struct:
 		for _, s := range stack {
 			if s == t {
@@ -241,7 +241,7 @@ func structFor(t reflect.Type, stack []reflect.Type, ctx string) map[string]any 
 					optional = true
 				}
 				if o == "string" {
-					fail("json \"string\" option at %s.%s — quoted numbers change the wire type", ctx, name)
+					fail("json \"string\" option at %s.%s: quoted numbers change the wire type", ctx, name)
 				}
 			}
 			props[name] = schemaFor(f.Type, stack, ctx+"."+name)

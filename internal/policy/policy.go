@@ -72,7 +72,7 @@ func (p *Policy) Apply(r *diff.Result) {
 		}
 		want := classNames[pr.Class]
 		if f.Class != want {
-			f.Message += fmt.Sprintf(" — reclassified %s→%s by org policy", f.Class, want)
+			f.Message += fmt.Sprintf(" (reclassified %s→%s by org policy)", f.Class, want)
 			f.Class = want
 		}
 	}

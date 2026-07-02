@@ -63,7 +63,7 @@ func (w *compatWalker) node(p path, emitter, parser *ir.Schema) {
 		msg := fmt.Sprintf("emitted %s, parsed as %s", emitter.Scalar, parser.Scalar)
 		switch ir.Fits(emitter.Scalar, parser.Scalar) {
 		case ir.FitLossy:
-			w.add(Warning, "scalar-lossy", p, msg+" (precision loss possible — SPEC F7)")
+			w.add(Warning, "scalar-lossy", p, msg+" (precision loss possible, SPEC F7)")
 		case ir.FitNo:
 			w.add(Breaking, "scalar-mismatch", p, msg)
 		}

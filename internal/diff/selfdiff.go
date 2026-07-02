@@ -82,7 +82,7 @@ func (w *selfWalker) add(class Class, rule string, p path, msg string) {
 		consumed := w.consumedBy(p)
 		if len(consumed) == 0 {
 			f.Class = Safe
-			f.Message = msg + " — no registered consumer reads this path"
+			f.Message = msg + " (no registered consumer reads this path)"
 		} else {
 			f.ConsumedBy = consumed
 		}
@@ -284,10 +284,10 @@ func (w *selfWalker) fieldAdded(fp path, required bool) {
 		lacking := w.consumersLacking(fp)
 		if len(w.opts.Consumers) > 0 && len(lacking) == 0 {
 			w.addRaw(Safe, "required-field-added", fp,
-				"required field added — all registered consumers already send it", nil)
+				"required field added; all registered consumers already send it", nil)
 		} else {
 			w.addRaw(Breaking, "required-field-added", fp,
-				"required field added — existing consumers do not send it", lacking)
+				"required field added; existing consumers do not send it", lacking)
 		}
 		return
 	}
@@ -305,10 +305,10 @@ func (w *selfWalker) requiredTransition(fp path, wasRequired, isRequired bool) {
 			lacking := w.consumersLacking(fp)
 			if len(w.opts.Consumers) > 0 && len(lacking) == 0 {
 				w.addRaw(Safe, "optional-to-required", fp,
-					"field now required — all registered consumers already send it", nil)
+					"field now required; all registered consumers already send it", nil)
 			} else {
 				w.addRaw(Breaking, "optional-to-required", fp,
-					"field now required — consumers may not send it", lacking)
+					"field now required; consumers may not send it", lacking)
 			}
 			return
 		}

@@ -77,7 +77,7 @@ def scalar(s):
 
 def to_ir(js, defs, ctx, ref_stack):
     if js is True or js is None or js == {}:
-        die(f"unconstrained schema at {ctx} (Any/object) — give it a concrete type")
+        die(f"unconstrained schema at {ctx} (Any/object): give it a concrete type")
     if "$ref" in js:
         key = js["$ref"].removeprefix("#/$defs/")
         if key == js["$ref"]:
@@ -119,11 +119,11 @@ def core_to_ir(node, defs, ctx, ref_stack):
         return union_to_ir(node, variants, defs, ctx, ref_stack)
     if "const" in node:
         if not isinstance(node["const"], str):
-            die(f"non-string const at {ctx} — IR enums are string-valued")
+            die(f"non-string const at {ctx}: IR enums are string-valued")
         return {**scalar("string"), "enum": [node["const"]]}
     if "enum" in node:
         if not all(isinstance(v, str) for v in node["enum"]):
-            die(f"non-string enum at {ctx} — IR enums are string-valued (v1)")
+            die(f"non-string enum at {ctx}: IR enums are string-valued (v1)")
         return {**scalar("string"), "enum": sorted(node["enum"])}
 
     t = node.get("type")
@@ -140,7 +140,7 @@ def core_to_ir(node, defs, ctx, ref_stack):
         return scalar("bool")
     if t == "array":
         if "prefixItems" in node:
-            die(f"tuple at {ctx} — not representable in IR v1")
+            die(f"tuple at {ctx}: not representable in IR v1")
         return {"type": "array", "items": to_ir(node.get("items"), defs, ctx + "[]", ref_stack)}
     if t == "object":
         props = node.get("properties") or {}
@@ -151,7 +151,7 @@ def core_to_ir(node, defs, ctx, ref_stack):
             value = True if ap is True else to_ir(ap, defs, ctx + "{}", ref_stack)
             return {"type": "object", "additionalProperties": value}
         if open_values:
-            die(f"mixed dict and named fields at {ctx} — not representable")
+            die(f"mixed dict and named fields at {ctx}: not representable")
         if not props:
             die(f"object with no fields at {ctx}")
         out_props = {n: to_ir(p, defs, f"{ctx}.{n}", ref_stack) for n, p in props.items()}
@@ -169,7 +169,7 @@ def union_to_ir(node, variants, defs, ctx, ref_stack):
         values = sorted({v for r in resolved for v in r["enum"]})
         return {**scalar("string"), "enum": values}
     if not all("properties" in r for r in resolved):
-        die(f"unsupported union at {ctx} — object unions with a discriminator or string-literal unions only")
+        die(f"unsupported union at {ctx}: object unions with a discriminator or string-literal unions only")
 
     disc = (node.get("discriminator") or {}).get("propertyName")
     if not disc:
@@ -180,7 +180,7 @@ def union_to_ir(node, variants, defs, ctx, ref_stack):
                 disc = name
                 break
     if not disc:
-        die(f"untagged object union at {ctx} — use Field(discriminator=...) (IR v1: tagged unions only)")
+        die(f"untagged object union at {ctx}: use Field(discriminator=...) (IR v1: tagged unions only)")
 
     branches = []
     for r in resolved:

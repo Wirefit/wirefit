@@ -107,7 +107,7 @@ func avroNode(s avro.Schema, stack []string, ctx string) (node, error) {
 			}
 		}
 		if !sawNull || len(nonNull) != 1 {
-			return nil, fmt.Errorf("non-null avro union at %s — Avro's JSON union encoding is not plain-JSON compatible (IR v1)", ctx)
+			return nil, fmt.Errorf("non-null avro union at %s: Avro's JSON union encoding is not plain-JSON compatible (IR v1)", ctx)
 		}
 		n, err := avroNode(nonNull[0], stack, ctx)
 		if err != nil {

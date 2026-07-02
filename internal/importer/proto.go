@@ -152,7 +152,7 @@ func protoSingular(f protoreflect.FieldDescriptor, stack []protoreflect.FullName
 		protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 		return scalarNode("int64"), false, nil
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		return nil, false, fmt.Errorf("uint64 at %s may exceed int64 — not contract-checkable (use int64 or string)", ctx)
+		return nil, false, fmt.Errorf("uint64 at %s may exceed int64; not contract-checkable (use int64 or string)", ctx)
 	case protoreflect.FloatKind:
 		return scalarNode("float32"), false, nil
 	case protoreflect.DoubleKind:
