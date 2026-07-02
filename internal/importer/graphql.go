@@ -81,11 +81,10 @@ func gqlType(schema *ast.Schema, def *ast.Definition, stack []string, ctx string
 		props := node{}
 		var required []string
 		for _, f := range def.Fields {
-			if f.Name == "__typename" || len(f.Arguments) > 0 && def.Kind == ast.Object {
-				// Parameterized fields are interactions of their own, not data.
-				if len(f.Arguments) > 0 {
-					continue
-				}
+			// __typename is introspection metadata, not data; a parameterized
+			// field on an object is an interaction of its own, not a data field.
+			if f.Name == "__typename" || (len(f.Arguments) > 0 && def.Kind == ast.Object) {
+				continue
 			}
 			fn, err := gqlFieldType(schema, f.Type, stack, ctx+"."+f.Name)
 			if err != nil {

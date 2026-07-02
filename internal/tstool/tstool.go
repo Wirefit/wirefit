@@ -5,6 +5,7 @@
 package tstool
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -21,8 +22,8 @@ var extractorSource string
 // extractorVersion keys the cache; bump on extract.js changes.
 const extractorVersion = "0.3.0"
 
-// typescriptVersion is the pinned compiler dependency. npm verifies its
-// integrity from the lockfile-equivalent metadata at install time.
+// typescriptVersion is the pinned compiler dependency, installed exact (no
+// caret) so the resolved package is reproducible.
 const typescriptVersion = "6.0.3"
 
 func cacheDir() (string, error) {
@@ -49,9 +50,18 @@ func EnsureExtractor() (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("npm not found — Node.js is required to extract TypeScript DTOs")
 		}
-		cmd := exec.Command(npm, "install", "--no-audit", "--no-fund", "--silent")
+		ctx, cancel := context.WithTimeout(context.Background(), extrun.DefaultTimeout)
+		defer cancel()
+		// --ignore-scripts: typescript is a pure-JS package with no install
+		// hooks, so refuse to run any (a poisoned or registry-overridden tarball
+		// otherwise gets arbitrary code execution at install time).
+		cmd := exec.CommandContext(ctx, npm, "install",
+			"--ignore-scripts", "--no-audit", "--no-fund", "--silent")
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return "", fmt.Errorf("installing typescript@%s timed out after %s", typescriptVersion, extrun.DefaultTimeout)
+			}
 			return "", fmt.Errorf("installing typescript@%s failed: %s: %w", typescriptVersion, out, err)
 		}
 	}
@@ -83,5 +93,7 @@ func Run(projectDir string, provided, consumed []string) (map[string]json.RawMes
 	for _, s := range consumed {
 		args = append(args, "in="+s)
 	}
-	return extrun.Run("ts", exec.Command(node, args...))
+	return extrun.Run("ts", func(ctx context.Context) *exec.Cmd {
+		return exec.CommandContext(ctx, node, args...)
+	})
 }

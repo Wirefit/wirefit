@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wirefit/wirefit/internal/diff"
 	"github.com/wirefit/wirefit/internal/ir"
 	"github.com/wirefit/wirefit/internal/manifest"
 )
@@ -65,19 +64,28 @@ func (s *Store) ServiceManifest(service string) (*manifest.Manifest, error) {
 	return manifest.Load(p)
 }
 
+// Consumer is one registered consumer's projection of a provider interaction,
+// with the unknown-fields strictness read from its published manifest copy. It
+// is the storage layer's own type so the store does not depend on internal/diff;
+// callers translate it into a diff.Consumer when running a check.
+type Consumer struct {
+	Schema        *ir.Schema
+	RejectUnknown bool
+}
+
 // ConsumersOf gathers every registered consumer projection for a provider
 // interaction, with each consumer's unknown-fields strictness from its
 // published manifest copy.
-func (s *Store) ConsumersOf(provider, id string) (map[string]diff.Consumer, error) {
+func (s *Store) ConsumersOf(provider, id string) (map[string]Consumer, error) {
 	root := filepath.Join(s.Dir, "contracts")
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
-		return map[string]diff.Consumer{}, nil
+		return map[string]Consumer{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]diff.Consumer{}
+	out := map[string]Consumer{}
 	for _, e := range entries {
 		if !e.IsDir() || e.Name() == provider {
 			continue
@@ -94,7 +102,7 @@ func (s *Store) ConsumersOf(provider, id string) (map[string]diff.Consumer, erro
 		if m, err := s.ServiceManifest(e.Name()); err == nil && m != nil {
 			reject = m.RejectsUnknown()
 		}
-		out[e.Name()] = diff.Consumer{Schema: sch, RejectUnknown: reject}
+		out[e.Name()] = Consumer{Schema: sch, RejectUnknown: reject}
 	}
 	return out, nil
 }
