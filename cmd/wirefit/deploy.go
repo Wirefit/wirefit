@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/wirefit/wirefit/internal/diff"
@@ -62,7 +63,7 @@ func cmdRecordDeploy(args []string) int {
 		p := filepath.Join(*repoDir, "contracts", m.Service, rel)
 		raw, err := os.ReadFile(p)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit record-deploy: %s not published — run `wirefit publish` before recording deploys (%v)\n", key, err)
+			fmt.Fprintf(os.Stderr, "wirefit record-deploy: %s not published; run `wirefit publish` before recording deploys (%v)\n", key, err)
 			return 2
 		}
 		hash, err := st.WriteBlob(raw)
@@ -178,7 +179,7 @@ func cmdCanIDeploy(args []string) int {
 		}
 		candidate, err := ir.Load(filepath.Join(*irDir, "provides", p.ID+".ir.json"))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit can-i-deploy: missing candidate IR for %s — run `wirefit extract` first (%v)\n", p.ID, err)
+			fmt.Fprintf(os.Stderr, "wirefit can-i-deploy: missing candidate IR for %s; run `wirefit extract` first (%v)\n", p.ID, err)
 			return 2
 		}
 		// Consumers registered at main, for untracked detection (PRD 4.4).
@@ -204,7 +205,7 @@ func cmdCanIDeploy(args []string) int {
 			if sl.RecordedAt.Before(staleBefore) {
 				r.Findings = append(r.Findings, diff.Finding{
 					Class: diff.Warning, Rule: "stale-deploy-record", Path: "$",
-					Message: fmt.Sprintf("deploy record from %s is older than %d days — re-record to trust this result",
+					Message: fmt.Sprintf("deploy record from %s is older than %d days; re-record to trust this result",
 						sl.RecordedAt.Format("2006-01-02"), *staleDays),
 				})
 			}
@@ -216,7 +217,7 @@ func cmdCanIDeploy(args []string) int {
 			r := diff.Compat(candidate, c.Schema, diff.CompatOptions{Direction: dir, StrictParser: c.RejectUnknown})
 			r.Findings = append(r.Findings, diff.Finding{
 				Class: diff.Warning, Rule: "untracked-consumer", Path: "$",
-				Message: fmt.Sprintf("%s has no deploy record in %s — checked against its main-branch usage instead", svc, *env),
+				Message: fmt.Sprintf("%s has no deploy record in %s; checked against its main-branch usage instead", svc, *env),
 			})
 			bump(fmt.Sprintf("provides %s ⇐ %s (untracked)", p.ID, svc), r)
 		}
@@ -268,7 +269,7 @@ func cmdCanIDeploy(args []string) int {
 			}
 			label = fmt.Sprintf("consumes %s/%s (untracked)", c.Provider, c.ID)
 			extra = &diff.Finding{Class: diff.Warning, Rule: "untracked-provider", Path: "$",
-				Message: fmt.Sprintf("%s has no deploy record in %s — checked against its main-branch schema instead", c.Provider, *env)}
+				Message: fmt.Sprintf("%s has no deploy record in %s; checked against its main-branch schema instead", c.Provider, *env)}
 		}
 		r := diff.Compat(provIR, mine, diff.CompatOptions{Direction: dir, StrictParser: strict})
 		if extra != nil {
@@ -289,7 +290,7 @@ func cmdCanIDeploy(args []string) int {
 		return worst
 	}
 	for _, key := range sortedResultKeys(results) {
-		fmt.Printf("— %s\n", key)
+		fmt.Printf("· %s\n", key)
 		printResult(results[key], "text")
 		fmt.Println()
 	}
@@ -303,11 +304,30 @@ func cmdCanIDeploy(args []string) int {
 
 // -------------------------------------------------------------------- matrix --
 
+// matrixEdge is one consumer→provider dependency in one env; the field names
+// are the `--format json` contract.
+type matrixEdge struct {
+	Env, Consumer, Provider, Interaction string
+	Status                               matrixStatus
+	Detail                               string
+}
+
+type matrixStatus string
+
+const (
+	matrixStatusOK           matrixStatus = "ok"
+	matrixStatusWarning      matrixStatus = "warning"
+	matrixStatusIncompatible matrixStatus = "INCOMPATIBLE"
+	matrixStatusUntracked    matrixStatus = "untracked"
+	matrixStatusError        matrixStatus = "error"
+)
+
 func cmdMatrix(args []string) int {
 	fs := flag.NewFlagSet("matrix", flag.ContinueOnError)
 	repoDir := fs.String("contracts-repo", "", "path to a contracts repo working copy")
 	staleDays := fs.Int("stale-days", 30, "deploy records older than this are labeled stale")
-	format := fs.String("format", "md", "md|json")
+	format := fs.String("format", "term", "term|md|html|json")
+	out := fs.String("o", "", "also write the matrix to this file (.md, .html or .json)")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -321,35 +341,79 @@ func cmdMatrix(args []string) int {
 		return 2
 	}
 	staleBefore := time.Now().Add(-time.Duration(*staleDays) * 24 * time.Hour)
-
-	type edge struct {
-		Env, Consumer, Provider, Interaction, Status, Detail string
+	edges, err := matrixEdges(st, staleBefore)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+		return 2
 	}
-	var edges []edge
+
+	switch *format {
+	case "term":
+		printMatrixTerm(edges)
+	case "md":
+		os.Stdout.Write(renderMatrixMD(edges))
+	case "html":
+		os.Stdout.Write(renderMatrixHTML(edges))
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(edges)
+	default:
+		fmt.Fprintf(os.Stderr, "wirefit matrix: unknown format %q (term|md|html|json)\n", *format)
+		return 2
+	}
+	if *out != "" {
+		var data []byte
+		switch filepath.Ext(*out) {
+		case ".md":
+			data = renderMatrixMD(edges)
+		case ".html", ".htm":
+			data = renderMatrixHTML(edges)
+		case ".json":
+			data, _ = json.MarshalIndent(edges, "", "  ")
+			data = append(data, '\n')
+		default:
+			fmt.Fprintf(os.Stderr, "wirefit matrix: cannot infer format for %s; use a .md, .html or .json extension\n", *out)
+			return 2
+		}
+		if err := os.WriteFile(*out, data, 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+			return 2
+		}
+	}
+	for _, e := range edges {
+		if e.Status == matrixStatusIncompatible || e.Status == matrixStatusError {
+			return 1
+		}
+	}
+	return 0
+}
+
+func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
+	var edges []matrixEdge
 	for _, env := range st.Envs() {
 		lock, err := st.LoadEnvLock(env)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
-			return 2
+			return nil, err
 		}
 		for consumer, sl := range lock {
 			for key, chash := range sl.Consumes {
 				provider, id, _ := cutString(key, "/")
-				e := edge{Env: env, Consumer: consumer, Provider: provider, Interaction: id}
+				e := matrixEdge{Env: env, Consumer: consumer, Provider: provider, Interaction: id}
 				psl, ok := lock[provider]
 				var phash string
 				if ok {
 					phash, ok = psl.Provides[id]
 				}
 				if !ok {
-					e.Status, e.Detail = "untracked", "provider has no deploy record in this env"
+					e.Status, e.Detail = matrixStatusUntracked, "provider has no deploy record in this env"
 					edges = append(edges, e)
 					continue
 				}
-				proj, err1 := st.ReadBlob(chash)
-				prov, err2 := st.ReadBlob(phash)
-				if err1 != nil || err2 != nil {
-					e.Status, e.Detail = "error", "missing blob — re-publish + re-record"
+				proj, cerr := st.ReadBlob(chash)
+				prov, perr := st.ReadBlob(phash)
+				if cerr != nil || perr != nil {
+					e.Status, e.Detail = matrixStatusError, "missing blob; re-publish + re-record"
 					edges = append(edges, e)
 					continue
 				}
@@ -370,11 +434,11 @@ func cmdMatrix(args []string) int {
 				r := diff.Compat(prov, proj, diff.CompatOptions{Direction: dir, StrictParser: strict})
 				switch r.Max() {
 				case diff.Breaking:
-					e.Status, e.Detail = "INCOMPATIBLE", r.Findings[0].Message
+					e.Status, e.Detail = matrixStatusIncompatible, r.Findings[0].Message
 				case diff.Warning:
-					e.Status, e.Detail = "warning", r.Findings[0].Message
+					e.Status, e.Detail = matrixStatusWarning, r.Findings[0].Message
 				default:
-					e.Status = "ok"
+					e.Status = matrixStatusOK
 				}
 				if sl.RecordedAt.Before(staleBefore) || psl.RecordedAt.Before(staleBefore) {
 					e.Detail = trimJoin(e.Detail, "stale deploy record")
@@ -383,27 +447,21 @@ func cmdMatrix(args []string) int {
 			}
 		}
 	}
-
-	if *format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(edges)
-	} else {
-		fmt.Println("# wirefit deployed compatibility matrix")
-		fmt.Println()
-		fmt.Println("| env | consumer | provider / interaction | status | detail |")
-		fmt.Println("|---|---|---|---|---|")
-		for _, e := range edges {
-			icon := map[string]string{"ok": "✅", "warning": "⚠️", "INCOMPATIBLE": "🔴", "untracked": "⚪", "error": "❗"}[e.Status]
-			fmt.Printf("| %s | %s | %s / %s | %s %s | %s |\n", e.Env, e.Consumer, e.Provider, e.Interaction, icon, e.Status, e.Detail)
+	// env locks are maps; sort so identical inputs render identically (NF3).
+	sort.Slice(edges, func(i, j int) bool {
+		a, b := edges[i], edges[j]
+		if a.Env != b.Env {
+			return a.Env < b.Env
 		}
-	}
-	for _, e := range edges {
-		if e.Status == "INCOMPATIBLE" || e.Status == "error" {
-			return 1
+		if a.Consumer != b.Consumer {
+			return a.Consumer < b.Consumer
 		}
-	}
-	return 0
+		if a.Provider != b.Provider {
+			return a.Provider < b.Provider
+		}
+		return a.Interaction < b.Interaction
+	})
+	return edges, nil
 }
 
 func cutString(s, sep string) (string, string, bool) {

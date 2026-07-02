@@ -136,7 +136,7 @@ func gqlType(schema *ast.Schema, def *ast.Definition, stack []string, ctx string
 		if s, ok := gqlScalars[def.Name]; ok {
 			return scalarNode(s), nil
 		}
-		return nil, fmt.Errorf("custom scalar %q at %s — no canonical mapping (map it to a standard scalar in the SDL or extend gqlScalars)", def.Name, ctx)
+		return nil, fmt.Errorf("custom scalar %q at %s: no canonical mapping (map it to a standard scalar in the SDL or extend gqlScalars)", def.Name, ctx)
 	}
 	return nil, fmt.Errorf("unsupported GraphQL kind %s at %s", def.Kind, ctx)
 }
@@ -190,7 +190,7 @@ func importGraphQLOperation(projectDir, file, sdlPath string) (json.RawMessage, 
 	}
 	op := doc.Operations[0]
 	if len(op.SelectionSet) != 1 {
-		return nil, fmt.Errorf("%s: exactly one root field per operation in v1 (found %d) — split the file", file, len(op.SelectionSet))
+		return nil, fmt.Errorf("%s: exactly one root field per operation in v1 (found %d); split the file", file, len(op.SelectionSet))
 	}
 	rootField, ok := op.SelectionSet[0].(*ast.Field)
 	if !ok {
@@ -253,7 +253,7 @@ func projectSelection(schema *ast.Schema, t *ast.Type, sel ast.SelectionSet, ctx
 				}
 			case *ast.InlineFragment:
 				// Conditional selections are optional by nature in v1.
-				return fmt.Errorf("inline fragments at %s — type-conditional usage is not projectable in IR v1; select common fields or split operations", ctx)
+				return fmt.Errorf("inline fragments at %s: type-conditional usage is not projectable in IR v1; select common fields or split operations", ctx)
 			}
 		}
 		return nil

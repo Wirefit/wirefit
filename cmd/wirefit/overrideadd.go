@@ -30,7 +30,7 @@ func cmdOverrideAdd(args []string) int {
 		return 2
 	}
 	if *justification == "" {
-		fmt.Fprintln(os.Stderr, "wirefit override add: --justification is required — overrides without a recorded reason defeat the audit trail")
+		fmt.Fprintln(os.Stderr, "wirefit override add: --justification is required; overrides without a recorded reason defeat the audit trail")
 		return 2
 	}
 	if *days < 1 || *days > 180 {
@@ -74,7 +74,7 @@ func cmdOverrideAdd(args []string) int {
 			}
 		}
 		if len(cands) != 1 {
-			fmt.Fprintf(os.Stderr, "wirefit override add: %d breaking finding(s) in the last check — specify --interaction/--path/--rule explicitly:\n", len(cands))
+			fmt.Fprintf(os.Stderr, "wirefit override add: %d breaking finding(s) in the last check; specify --interaction/--path/--rule explicitly:\n", len(cands))
 			for _, c := range cands {
 				fmt.Fprintf(os.Stderr, "  --interaction %s --path '%s' --rule %s\n", c.interaction, c.f.Path, c.f.Rule)
 			}

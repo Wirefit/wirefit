@@ -47,7 +47,7 @@ func EnsureExtractor() (string, error) {
 	if _, err := os.Stat(filepath.Join(dir, "node_modules", "typescript", "package.json")); os.IsNotExist(err) {
 		npm, err := exec.LookPath("npm")
 		if err != nil {
-			return "", fmt.Errorf("npm not found — Node.js is required to extract TypeScript DTOs")
+			return "", fmt.Errorf("npm not found: Node.js is required to extract TypeScript DTOs")
 		}
 		cmd := exec.Command(npm, "install", "--no-audit", "--no-fund", "--silent")
 		cmd.Dir = dir
@@ -69,7 +69,7 @@ func Run(projectDir string, provided, consumed []string) (map[string]json.RawMes
 	}
 	node, err := exec.LookPath("node")
 	if err != nil {
-		return nil, fmt.Errorf("node not found — Node.js is required to extract TypeScript DTOs")
+		return nil, fmt.Errorf("node not found: Node.js is required to extract TypeScript DTOs")
 	}
 	// --experimental-strip-types: required for runtime-importing .ts schema
 	// modules on the Zod path (no-op where stripping is already default).

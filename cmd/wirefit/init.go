@@ -48,7 +48,7 @@ provides: []
 #    direction: response                     # response | request | event
 #    dto: com.example.api.ExampleResponse    # serialization root type
 
-# What this service consumes from others — your DTOs ARE your usage declaration.
+# What this service consumes from others: your DTOs ARE your usage declaration.
 consumes: []
 #  - id: billing.invoice-created
 #    provider: billing-service
@@ -71,7 +71,7 @@ consumes: []
 		fmt.Fprintln(os.Stderr, "wirefit init:", err)
 		return 2
 	}
-	fmt.Printf("wrote %s (service %s) — fill in provides/consumes, then run `wirefit extract`\n", *out, name)
+	fmt.Printf("wrote %s (service %s): fill in provides/consumes, then run `wirefit extract`\n", *out, name)
 	return 0
 }
 

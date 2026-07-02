@@ -68,7 +68,7 @@ func run(args []string) int {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `wirefit — language-agnostic contract checking
+	fmt.Fprint(os.Stderr, `wirefit: language-agnostic contract checking
 
 usage: wirefit <command> [flags]
 
@@ -237,41 +237,4 @@ func cmdCompat(args []string) int {
 	r := diff.Compat(p, c, diff.CompatOptions{Direction: dir, StrictParser: *strict})
 	printResult(r, *format)
 	return r.ExitCode()
-}
-
-var badges = map[diff.Class]string{
-	diff.Breaking: "🔴 breaking",
-	diff.Warning:  "⚠️  warning ",
-	diff.Safe:     "🟢 safe    ",
-	diff.Neutral:  "⚪ neutral ",
-}
-
-func printResult(r *diff.Result, format string) {
-	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(r)
-		return
-	}
-	if len(r.Findings) == 0 {
-		fmt.Println("no contract-relevant changes")
-		return
-	}
-	cold := ""
-	if r.ColdStart {
-		cold = " — cold start (no consumers registered): breaking downgraded to warning"
-	}
-	fmt.Printf("%d finding(s), direction %s%s\n", len(r.Findings), r.Direction, cold)
-	for _, f := range r.Findings {
-		line := fmt.Sprintf("  %s  %-24s %-28s %s", badges[f.Class], f.Rule, f.Path, f.Message)
-		if len(f.ConsumedBy) > 0 {
-			line += fmt.Sprintf(" [consumers: %v]", f.ConsumedBy)
-		}
-		fmt.Println(line)
-	}
-	if r.Max() == diff.Breaking {
-		fmt.Println("result: BREAKING — do not merge")
-	} else {
-		fmt.Println("result: compatible")
-	}
 }

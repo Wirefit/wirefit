@@ -112,6 +112,6 @@ func cmdExtractorTest(args []string) int {
 	if fail {
 		return 1
 	}
-	fmt.Println("extractor-test: PASS — extractor agrees with the wirefit corpus")
+	fmt.Println("extractor-test: PASS, extractor agrees with the wirefit corpus")
 	return 0
 }

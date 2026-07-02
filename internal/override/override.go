@@ -69,11 +69,11 @@ func Load(path string, now time.Time) (*File, []error) {
 			continue
 		}
 		if !exp.After(now) {
-			errs = append(errs, fmt.Errorf("%s: expired on %s — remove it or re-justify with a new date (%s)",
+			errs = append(errs, fmt.Errorf("%s: expired on %s; remove it or re-justify with a new date (%s)",
 				at, o.Expires, o.Justification))
 		}
 		if exp.Sub(now) > MaxValidity {
-			errs = append(errs, fmt.Errorf("%s: expires %s is more than 180 days out — overrides are temporary by design", at, o.Expires))
+			errs = append(errs, fmt.Errorf("%s: expires %s is more than 180 days out; overrides are temporary by design", at, o.Expires))
 		}
 	}
 	return &f, errs
@@ -101,7 +101,7 @@ func (f *File) Apply(interactionID string, r *diff.Result) []*Override {
 			}
 			fd.Class = o.targetClass()
 			fd.Overridden = true
-			fd.Message += fmt.Sprintf(" — override accepted: %s (expires %s)", o.Justification, o.Expires)
+			fd.Message += fmt.Sprintf("; override accepted: %s (expires %s)", o.Justification, o.Expires)
 			o.used = true
 			applied = append(applied, o)
 		}

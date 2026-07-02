@@ -37,7 +37,7 @@ func ResolveClasspath(dir, tool string) (string, error) {
 	case "none":
 		return "", fmt.Errorf("--build-tool none requires an explicit --classpath")
 	default:
-		return "", fmt.Errorf("no pom.xml or build.gradle found in %s — pass --classpath explicitly", dir)
+		return "", fmt.Errorf("no pom.xml or build.gradle found in %s; pass --classpath explicitly", dir)
 	}
 }
 
@@ -52,7 +52,7 @@ func wrapper(dir, wrapperName, fallback string) string {
 func mavenClasspath(dir string) (string, error) {
 	classes := filepath.Join(dir, "target", "classes")
 	if _, err := os.Stat(classes); os.IsNotExist(err) {
-		return "", fmt.Errorf("%s missing — compile first (mvn -DskipTests compile)", classes)
+		return "", fmt.Errorf("%s missing; compile first (mvn -DskipTests compile)", classes)
 	}
 	out, err := os.CreateTemp("", "wirefit-mvn-cp-*")
 	if err != nil {

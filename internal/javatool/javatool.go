@@ -155,7 +155,7 @@ func ensureJar(path string, d dep) error {
 	}
 	if ok, sum := verify(tmp, d.sha256); !ok {
 		os.Remove(tmp)
-		return fmt.Errorf("checksum mismatch for %s: got %s — refusing to use it", d.file, sum)
+		return fmt.Errorf("checksum mismatch for %s: got %s; refusing to use it", d.file, sum)
 	}
 	return os.Rename(tmp, path)
 }
@@ -202,5 +202,5 @@ func findJavac() (string, error) {
 	if p, err := exec.LookPath("javac"); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("javac not found (JAVA_HOME or PATH) — a JDK is required to extract Java DTOs")
+	return "", fmt.Errorf("javac not found (JAVA_HOME or PATH): a JDK is required to extract Java DTOs")
 }
