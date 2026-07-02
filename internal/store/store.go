@@ -86,12 +86,20 @@ func (s *Store) ConsumersOf(provider, id string) (map[string]diff.Consumer, erro
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			continue
 		}
+		m, merr := s.ServiceManifest(e.Name())
+		// A projection the published manifest no longer declares is a stale file
+		// from before Publish pruned dropped interactions — not a registration.
+		// A missing/unreadable manifest still counts: fail toward protecting the
+		// provider gate rather than silently dropping a consumer.
+		if merr == nil && m != nil && !m.ConsumesFrom(provider, id) {
+			continue
+		}
 		sch, err := ir.Load(p)
 		if err != nil {
 			return nil, fmt.Errorf("consumer projection %s: %w", p, err)
 		}
 		reject := false
-		if m, err := s.ServiceManifest(e.Name()); err == nil && m != nil {
+		if merr == nil && m != nil {
 			reject = m.RejectsUnknown()
 		}
 		out[e.Name()] = diff.Consumer{Schema: sch, RejectUnknown: reject}
@@ -150,10 +158,74 @@ func (s *Store) Publish(m *manifest.Manifest, manifestSrc string,
 			}
 		}
 	}
+	if err := pruneStale(dir, provides, consumes); err != nil {
+		return err
+	}
 	if noCommit {
 		return nil
 	}
 	return s.commitAndPush(m.Service)
+}
+
+// pruneStale deletes IR files for interactions no longer in the manifest:
+// publishing must unregister dropped provides/consumes, or a stale projection
+// keeps blocking the provider forever as a phantom consumer.
+func pruneStale(dir string, provides map[string][]byte, consumes map[string]map[string][]byte) error {
+	provDir := filepath.Join(dir, "provides")
+	entries, err := os.ReadDir(provDir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, e := range entries {
+		id, ok := strings.CutSuffix(e.Name(), ".ir.json")
+		if !ok {
+			continue
+		}
+		if _, ok := provides[id]; !ok {
+			if err := os.Remove(filepath.Join(provDir, e.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	removeIfEmpty(provDir)
+
+	consRoot := filepath.Join(dir, "consumes")
+	provs, err := os.ReadDir(consRoot)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, p := range provs {
+		if !p.IsDir() {
+			continue
+		}
+		pd := filepath.Join(consRoot, p.Name())
+		files, err := os.ReadDir(pd)
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			id, ok := strings.CutSuffix(f.Name(), ".ir.json")
+			if !ok {
+				continue
+			}
+			if _, ok := consumes[p.Name()][id]; !ok {
+				if err := os.Remove(filepath.Join(pd, f.Name())); err != nil {
+					return err
+				}
+			}
+		}
+		removeIfEmpty(pd)
+	}
+	removeIfEmpty(consRoot)
+	return nil
+}
+
+// removeIfEmpty drops a directory once pruning emptied it, so the store
+// layout never shows a service as providing/consuming nothing in particular.
+func removeIfEmpty(dir string) {
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
+		_ = os.Remove(dir)
+	}
 }
 
 func (s *Store) git(args ...string) (string, error) {

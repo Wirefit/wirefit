@@ -164,3 +164,14 @@ func (m *Manifest) Validate() []error {
 
 // RejectsUnknown reports the effective unknown-fields strictness.
 func (m *Manifest) RejectsUnknown() bool { return m.Settings.UnknownFields == "reject" }
+
+// ConsumesFrom reports whether the manifest declares consumption of the
+// provider's interaction.
+func (m *Manifest) ConsumesFrom(provider, id string) bool {
+	for _, c := range m.Consumes {
+		if c.Provider == provider && c.ID == id {
+			return true
+		}
+	}
+	return false
+}
