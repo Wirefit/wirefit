@@ -68,6 +68,26 @@ settings:
 	}
 }
 
+func TestConsumesFrom(t *testing.T) {
+	m, err := Parse([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		provider, id string
+		want         bool
+	}{
+		{"billing-service", "billing.invoice-created", true},
+		{"billing-service", "orders.get-order", false},
+		{"order-service", "billing.invoice-created", false},
+	}
+	for _, c := range cases {
+		if got := m.ConsumesFrom(c.provider, c.id); got != c.want {
+			t.Errorf("ConsumesFrom(%s, %s) = %v, want %v", c.provider, c.id, got, c.want)
+		}
+	}
+}
+
 func TestUnknownKeysRejected(t *testing.T) {
 	if _, err := Parse([]byte("service: x\nschema-version: 1\nproviides: []\n")); err == nil {
 		t.Fatal("typo'd key must error (zero-config means typos fail loudly)")
