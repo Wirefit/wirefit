@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/wirefit/wirefit/internal/extrun"
 )
 
 //go:embed WirefitExtract.java
@@ -48,11 +51,51 @@ const mavenCentral = "https://repo1.maven.org/maven2/"
 var httpClient = &http.Client{Timeout: 45 * time.Second}
 
 func cacheDir() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
+	return extrun.CacheDir("java-extractor", extractorVersion)
+}
+
+// RunOptions configures one Java extraction invocation.
+type RunOptions struct {
+	ProjectDir  string // service project dir (classpath resolution root)
+	Classpath   string // explicit service classpath; "" → resolve via BuildTool
+	BuildTool   string // auto|maven|gradle|none
+	ExtractorCP string // override for WirefitExtract+jackson; "" → EnsureExtractor
+	Mapper      string // ObjectMapper provider <fqn>#<method>; "" → none
+	JavaBin     string // java binary (default "java")
+}
+
+// Run extracts IR for the given fully-qualified type names by invoking the
+// bootstrapped WirefitExtract against the service classpath. Returns raw IR JSON
+// keyed by FQN.
+func Run(opts RunOptions, fqns []string) (map[string]json.RawMessage, error) {
+	// Service classpath: explicit override, or interrogate the build tool —
+	// zero build-file changes required in the service (PRD 1.3 amendment).
+	serviceCP := opts.Classpath
+	if serviceCP == "" {
+		var err error
+		serviceCP, err = ResolveClasspath(opts.ProjectDir, opts.BuildTool)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return filepath.Join(base, "wirefit", "java-extractor", extractorVersion), nil
+	// Extractor classpath: self-bootstrapping cache (pinned, checksummed jars +
+	// embedded WirefitExtract compiled on demand) unless overridden.
+	extractorCP := opts.ExtractorCP
+	if extractorCP == "" {
+		var err error
+		extractorCP, err = EnsureExtractor()
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Service classpath first: the service's own Jackson version wins.
+	javaArgs := []string{"-cp", serviceCP + string(os.PathListSeparator) + extractorCP}
+	if opts.Mapper != "" {
+		javaArgs = append(javaArgs, "-Dwirefit.mapper="+opts.Mapper)
+	}
+	javaArgs = append(javaArgs, "io.wirefit.extract.WirefitExtract")
+	javaArgs = append(javaArgs, fqns...)
+	return extrun.Run("java", exec.Command(opts.JavaBin, javaArgs...))
 }
 
 // EnsureExtractor returns the classpath (WirefitExtract classes + Jackson jars)
@@ -60,9 +103,6 @@ func cacheDir() (string, error) {
 func EnsureExtractor() (string, error) {
 	dir, err := cacheDir()
 	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	var parts []string

@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/wirefit/wirefit/internal/extrun"
 )
 
 var moduleRe = regexp.MustCompile(`(?m)^module\s+(\S+)`)
@@ -84,19 +86,9 @@ func Run(projectDir string, specs []string) (map[string]json.RawMessage, error) 
 	}
 	defer os.RemoveAll(filepath.Join(projectDir, ".wirefit", "gen"))
 
-	goBin := "go"
-	cmd := exec.Command(goBin, "run", "./.wirefit/gen/extract")
+	cmd := exec.Command("go", "run", "./.wirefit/gen/extract")
 	cmd.Dir = projectDir
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("go extractor failed: %w", err)
-	}
-	var res map[string]json.RawMessage
-	if err := json.Unmarshal(out, &res); err != nil {
-		return nil, fmt.Errorf("bad go extractor output: %w", err)
-	}
-	return res, nil
+	return extrun.Run("go", cmd)
 }
 
 // program is the generated reflection walker. Stdlib only; deterministic

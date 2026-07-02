@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/wirefit/wirefit/internal/extrun"
 )
 
 //go:embed extract.js
@@ -24,11 +26,7 @@ const extractorVersion = "0.3.0"
 const typescriptVersion = "6.0.3"
 
 func cacheDir() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "wirefit", "ts-extractor", extractorVersion), nil
+	return extrun.CacheDir("ts-extractor", extractorVersion)
 }
 
 // EnsureExtractor returns the path to a ready-to-run extract.js with its
@@ -36,9 +34,6 @@ func cacheDir() (string, error) {
 func EnsureExtractor() (string, error) {
 	dir, err := cacheDir()
 	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	script := filepath.Join(dir, "extract.js")
@@ -88,15 +83,5 @@ func Run(projectDir string, provided, consumed []string) (map[string]json.RawMes
 	for _, s := range consumed {
 		args = append(args, "in="+s)
 	}
-	cmd := exec.Command(node, args...)
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("ts extractor failed: %w", err)
-	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(out, &m); err != nil {
-		return nil, fmt.Errorf("bad ts extractor output: %w", err)
-	}
-	return m, nil
+	return extrun.Run("ts", exec.Command(node, args...))
 }

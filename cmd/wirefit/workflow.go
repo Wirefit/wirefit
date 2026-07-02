@@ -12,7 +12,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -187,48 +186,20 @@ func cmdExtract(args []string) int {
 	}
 
 	if len(javaFQNs) > 0 {
-		// Service classpath: explicit override, or interrogate the build tool —
-		// zero build-file changes required in the service (PRD 1.3 amendment).
-		serviceCP := *classpath
-		if serviceCP == "" {
-			var err error
-			serviceCP, err = javatool.ResolveClasspath(*projectDir, *buildTool)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "wirefit extract:", err)
-				return 2
-			}
-		}
-		// Extractor classpath: self-bootstrapping cache (pinned, checksummed
-		// jars + embedded WirefitExtract compiled on demand) unless overridden.
-		if *extractorCP == "" {
-			var err error
-			*extractorCP, err = javatool.EnsureExtractor()
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "wirefit extract:", err)
-				return 2
-			}
-		}
 		mapper := *mapperHint
 		if mapper == "" {
 			mapper = m.Settings.JavaMapper
 		}
-		// Service classpath first: the service's own Jackson version wins.
-		javaArgs := []string{"-cp", serviceCP + string(os.PathListSeparator) + *extractorCP}
-		if mapper != "" {
-			javaArgs = append(javaArgs, "-Dwirefit.mapper="+mapper)
-		}
-		javaArgs = append(javaArgs, "io.wirefit.extract.WirefitExtract")
-		javaArgs = append(javaArgs, javaFQNs...)
-		cmd := exec.Command(*javaBin, javaArgs...)
-		cmd.Stderr = os.Stderr
-		out, err := cmd.Output()
+		javaOut, err := javatool.Run(javatool.RunOptions{
+			ProjectDir:  *projectDir,
+			Classpath:   *classpath,
+			BuildTool:   *buildTool,
+			ExtractorCP: *extractorCP,
+			Mapper:      mapper,
+			JavaBin:     *javaBin,
+		}, javaFQNs)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit extract: extractor failed:", err)
-			return 2
-		}
-		var javaOut map[string]json.RawMessage
-		if err := json.Unmarshal(out, &javaOut); err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit extract: bad extractor output:", err)
+			fmt.Fprintln(os.Stderr, "wirefit extract:", err)
 			return 2
 		}
 		for k, v := range javaOut {
