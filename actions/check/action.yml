@@ -13,7 +13,7 @@
 #       runs-on: ubuntu-latest
 #       steps:
 #         - uses: actions/checkout@v4
-#         - uses: wirefit/wirefit/action@v0   # placeholder org/repo
+#         - uses: Wirefit/wirefit/actions/check@v0
 #           with:
 #             contracts-repo: acme/contracts
 #             token: ${{ secrets.CONTRACTS_REPO_TOKEN }}
@@ -36,6 +36,9 @@ inputs:
       optional classpath override; by default wirefit interrogates the project's
       own build tool (maven/gradle) — no build-file changes needed
     default: ''
+  version:
+    description: wirefit version to install (a module version like v0.3.0, or latest)
+    default: latest
 
 runs:
   using: composite
@@ -49,7 +52,7 @@ runs:
 
     - name: Install wirefit
       shell: bash
-      run: go install github.com/wirefit/wirefit/cmd/wirefit@latest   # TODO: pinned release binary + checksum
+      run: go install github.com/wirefit/wirefit/cmd/wirefit@${{ inputs.version }}   # TODO: pinned release binary + checksum
 
     - name: Extract candidate IR
       shell: bash
