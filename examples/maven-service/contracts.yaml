@@ -5,5 +5,6 @@ provides:
     kind: rest
     direction: response
     dto: com.acme.inventory.StockLevelResponse
-settings:
-  java-mapper: com.acme.inventory.StockLevelResponse#wirefitMapper
+extractors:
+  - match: "*"
+    command: "wirefit-java --mapper com.acme.inventory.StockLevelResponse#wirefitMapper"

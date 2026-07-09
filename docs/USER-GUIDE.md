@@ -56,21 +56,25 @@ Toolchain expectations (only for the languages you actually extract):
 | | needed |
 |---|---|
 | core CLI | nothing — static binary |
-| Java extraction | JDK 17+ on PATH/JAVA_HOME (bytecode floor 17; tested through 25), Maven or Gradle project |
-| TypeScript / Zod | Node ≥ 22.6 + npm |
-| Go | the service's own Go toolchain |
+| Java extraction | the `wirefit-java` extractor + JDK 17+ on PATH/JAVA_HOME (bytecode floor 17; tested through 25), Maven or Gradle project |
+| TypeScript / Zod | the `wirefit-ts` extractor + Node ≥ 22.6 + npm |
+| Go | the service's own Go toolchain (built in) |
 | Python | python3 + pydantic v2 (external extractor, see §5.5) |
 | importers (.proto/.avsc/.graphql) | nothing — built in |
 
-First extraction self-bootstraps the per-language machinery into your user cache
-(`~/.cache/wirefit/`): pinned, SHA-256-verified Jackson jars compiled against the embedded
-Java extractor; a pinned `typescript` npm install for the TS extractor.
+`wirefit-ts` and `wirefit-java` are external extractor executables that ship in the same
+release archive as `wirefit` (`go install github.com/wirefit/wirefit/cmd/wirefit-ts@latest`
+and `.../wirefit-java@latest`); a manifest routes DTO references to them via `extractors:`
+(below). Go and the schema importers stay built into the core. First Java/TS extraction
+self-bootstraps the per-language machinery into your user cache (`~/.cache/wirefit/`):
+pinned, SHA-256-verified Jackson jars compiled against the embedded Java extractor; a pinned
+`typescript` npm install for the TS extractor.
 
 Trust boundary: run `wirefit extract` only against repositories you trust. Extraction may
-execute the target project or its tooling: Java classpath resolution can run
-`mvnw`/`gradlew`, Go extraction runs a generated `go run` inside the module, Zod extraction
-imports service modules, and external extractors are arbitrary commands configured by the
-manifest.
+execute the target project or its tooling: `wirefit-java` classpath resolution can run
+`mvnw`/`gradlew`, Go extraction runs a generated `go run` inside the module, `wirefit-ts`
+Zod extraction imports service modules, and external extractors are arbitrary commands
+configured by the manifest.
 
 ---
 
@@ -80,7 +84,7 @@ manifest.
 cd my-service
 wirefit init                 # writes contracts.yaml + DTO candidate suggestions
 $EDITOR contracts.yaml       # declare provides / consumes
-wirefit extract              # DTOs → IR (build tool interrogated automatically)
+wirefit extract              # DTOs → IR (external extractors resolve their own classpath)
 wirefit check --contracts-repo ../contracts   # diff against published state
 wirefit publish --contracts-repo ../contracts # on merge to main (CI does this)
 ```
@@ -109,29 +113,37 @@ consumes:                     # what this service reads — its usage declaratio
     provider: billing-service
     dto: src/events/InvoiceCreated.ts#InvoiceCreated
 
-extractors:                   # optional: third-party extractors (protocol v1)
-  - match: ".py"
-    command: "python3 tools/wirefit_extract_py.py"
+extractors:                   # external extractors (protocol v1). Route DTO refs
+  - match: ".ts"              # by file suffix, or "*" for suffix-less refs (java FQNs).
+    command: "wirefit-ts"
+  - match: "*"                # at most one "*" fallback; consulted after built-ins.
+    command: "wirefit-java --build-tool maven"   # java config rides on the command
+  # - match: ".py"
+  #   command: "python3 tools/wirefit_extract_py.py"
 
 settings:                     # all optional
   unknown-fields: ignore      # reject if your deserializer is strict (flips rules, §7)
-  java-mapper: com.acme.config.Jackson#objectMapper   # custom ObjectMapper provider
   graphql-schema: schema.graphql                      # SDL for operation-file projections
 ```
 
-**DTO reference formats** (routing is automatic):
+**DTO reference formats.** Routing is by registry order: the schema importers and Go are
+built in; `.ts`/`.tsx` and bare Java FQNs are handled by the `wirefit-ts` and `wirefit-java`
+extractors you route to under `extractors:`. Suffix rules match before Go; the single `*`
+fallback matches after it (so `./pkg#Type` still reaches Go).
 
-| format | extractor |
-|---|---|
-| `com.acme.api.OrderResponse` | Java (Jackson introspection) |
-| `src/views.ts#OrderView` | TypeScript (compiler API) |
-| `src/schemas.ts#OrderSchema` | Zod (runtime, if the export is a Zod schema) |
-| `./internal/api#OrderResponse` | Go (reflection, generated in-module) |
-| `src/models.py#OrderView` | via `extractors:` matcher (e.g. Python) |
-| `schemas/order.proto#Order` | proto importer |
-| `schemas/order-created.avsc` (`#Name` optional) | Avro importer |
-| `schema.graphql#Order` | GraphQL SDL importer |
-| `queries/getOrder.graphql` (no `#`) | GraphQL persisted-query projection |
+| format | extractor | routing |
+|---|---|---|
+| `com.acme.api.OrderResponse` | `wirefit-java` (Jackson introspection) | `extractors: {match: "*"}` |
+| `src/views.ts#OrderView` | `wirefit-ts` (compiler API) | `extractors: {match: ".ts"}` |
+| `src/schemas.ts#OrderSchema` | `wirefit-ts` Zod (runtime, if the export is a Zod schema) | `extractors: {match: ".ts"}` |
+| `./internal/api#OrderResponse` | Go (reflection, generated in-module) | built in |
+| `src/models.py#OrderView` | e.g. Python | `extractors: {match: ".py"}` |
+| `schemas/order.proto#Order` | proto importer | built in |
+| `schemas/order-created.avsc` (`#Name` optional) | Avro importer | built in |
+| `schema.graphql#Order` | GraphQL SDL importer | built in |
+| `queries/getOrder.graphql` (no `#`) | GraphQL persisted-query projection | built in |
+
+An unmatched reference fails with an actionable hint naming the `extractors:` entry to add.
 
 ---
 
@@ -143,7 +155,7 @@ Exit codes everywhere: **0** ok/warnings · **1** breaking · **2** config/input
 |---|---|---|
 | `wirefit init` | scaffold a manifest + DTO suggestions | `--service`, `--scan`, `--force` |
 | `wirefit validate` | validate the manifest (reports *every* problem) | `-f` |
-| `wirefit extract` | DTOs/schemas → IR in `.wirefit/ir/` | `--project`, `--classpath`, `--build-tool auto\|maven\|gradle\|none`, `--mapper`, `--ir` |
+| `wirefit extract` | DTOs/schemas → IR in `.wirefit/ir/` | `--project`, `--ir`, `-f` (java/classpath flags moved onto the `wirefit-java` command, §5.1) |
 | `wirefit check` | candidate IR vs contracts repo (the PR gate) | `--contracts-repo`, `--ir`, `--overrides`, `--report file.md`, `--format text\|json` |
 | `wirefit publish` | write IR + manifest copy to the contracts repo (merge to main) | `--contracts-repo`, `--no-commit` |
 | `wirefit record-deploy` | pin published contracts as deployed in an env | `--env`, `--contracts-repo` |
@@ -183,27 +195,38 @@ wirefit record-deploy --env production --contracts-repo contracts/  # record rea
 
 Full mapping tables live next to each extractor — this is the short version.
 
-### 5.1 Java (`extractors/java/README.md`)
-Jackson's own introspection does the work: naming strategies, `@JsonIgnore`,
-`@JsonProperty(required)`, `@JsonInclude` behave exactly as serialization does.
-Presence table: primitive → required non-null · `Optional<T>` → optional ·
-`@JsonInclude(NON_NULL)` → optional · `@Nonnull` (jakarta/javax/JetBrains/Lombok, matched
-by simple name) → non-null · plain reference → required **nullable**. Classpath comes from
-`mvn dependency:build-classpath` or an injected Gradle init script — zero build-file
-changes. Custom/Spring mapper: `settings.java-mapper: com.acme.Config#objectMapper`.
+### 5.1 Java (`wirefit-java`, `extractors/java/README.md`)
+Routed via `extractors: {match: "*", command: "wirefit-java ..."}`. Jackson's own
+introspection does the work: naming strategies, `@JsonIgnore`, `@JsonProperty(required)`,
+`@JsonInclude` behave exactly as serialization does. Presence table: primitive → required
+non-null · `Optional<T>` → optional · `@JsonInclude(NON_NULL)` → optional · `@Nonnull`
+(jakarta/javax/JetBrains/Lombok, matched by simple name) → non-null · plain reference →
+required **nullable**. Classpath comes from `mvn dependency:build-classpath` or an injected
+Gradle init script — zero build-file changes.
 
-### 5.2 TypeScript (`extractors/typescript/README.md`)
-The project's own tsconfig drives the compiler (strict null checks required — without them
-nullability is unknowable and extraction refuses). `field?:` → optional; `| null` →
-nullable; string-literal unions → enums; discriminated unions → tagged unions with the
-discriminant lifted to the union level. `number` is `float64` — reading a Java `long` as
-`number` warns (2^53). Path aliases resolve automatically.
+Configuration rides on the `wirefit-java` command in the manifest, not on `wirefit extract`:
+`--classpath` (explicit classpath, skips build-tool resolution), `--build-tool
+auto|maven|gradle|none`, `--extractor-cp`, `--mapper <class-fqn>#<static-method>` (custom or
+Spring ObjectMapper), `--java` (java binary). Example:
+`command: "wirefit-java --build-tool gradle --mapper com.acme.Config#objectMapper"`.
+(The old `settings.java-mapper` is deprecated: still parsed, warned as unused, pass
+`--mapper` instead.)
 
-### 5.3 Zod
-Point the manifest at an exported schema; wirefit runtime-imports the module and converts
+### 5.2 TypeScript (`wirefit-ts`, `extractors/typescript/README.md`)
+Routed via `extractors: {match: ".ts", command: "wirefit-ts"}`. The project's own tsconfig
+drives the compiler (strict null checks required — without them nullability is unknowable
+and extraction refuses). `field?:` → optional; `| null` → nullable; string-literal unions →
+enums; discriminated unions → tagged unions with the discriminant lifted to the union level.
+`number` is `float64` — reading a Java `long` as `number` warns (2^53). Path aliases resolve
+automatically.
+
+### 5.3 Zod (`wirefit-ts`)
+Same extractor as §5.2. Point the manifest at an exported schema; it runtime-imports the module and converts
 with the *service's own* zod v4 (`z.toJSONSchema`). `z.uuid()` / `z.iso.datetime()` give
 richer scalars than the type system can. `.default()` fields: required on the provider
-side, optional on the consumer side (io follows the manifest role).
+side, optional on the consumer side (io follows the manifest role). Because those semantics
+differ per side, the same `.ts` ref used in *both* `provides` and `consumes` is rejected —
+split it into two references.
 
 ### 5.4 Go (`extractors/golang/README.md`)
 Reflection via a program generated *inside your module* (`.wirefit/gen/`, transient) — so

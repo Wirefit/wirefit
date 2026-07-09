@@ -5,3 +5,6 @@ provides:
     kind: rest
     direction: response
     dto: com.acme.shipping.ShipmentResponse
+extractors:
+  - match: "*"
+    command: wirefit-java

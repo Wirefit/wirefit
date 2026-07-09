@@ -24,7 +24,9 @@ type Manifest struct {
 
 // ExternalExtractor routes dto references by file suffix to a command.
 type ExternalExtractor struct {
-	Match   string `yaml:"match"`   // file suffix, e.g. ".py"
+	// Match: a file suffix like ".py", or "*", the single fallback for
+	// suffix-less refs (java FQNs), consulted after the built-in routes.
+	Match   string `yaml:"match"`
 	Command string `yaml:"command"` // executable (PATH-resolved), run in the service repo
 }
 
@@ -48,8 +50,9 @@ type Consumption struct {
 type Settings struct {
 	// UnknownFields: "" (default, = ignore) | ignore | reject (SPEC C5).
 	UnknownFields string `yaml:"unknown-fields"`
-	// JavaMapper: optional ObjectMapper provider, "<class-fqn>#<static-method>".
-	// The documented fallback for custom/Spring Jackson configuration.
+	// JavaMapper: deprecated and unused: pass --mapper on the wirefit-java
+	// extractor command instead. Still parsed and validated so old manifests
+	// warn rather than break.
 	JavaMapper string `yaml:"java-mapper"`
 	// GraphQLSchema: SDL path used to resolve GraphQL operation files (PRD 5.4).
 	GraphQLSchema string `yaml:"graphql-schema"`
@@ -101,9 +104,18 @@ func (m *Manifest) Validate() []error {
 	if m.Settings.JavaMapper != "" && !mapperRe.MatchString(m.Settings.JavaMapper) {
 		fail("settings.java-mapper: %q must be <class-fqn>#<static-method>", m.Settings.JavaMapper)
 	}
+	wildcards := 0
 	for i, x := range m.Extractors {
-		if len(x.Match) < 2 || x.Match[0] != '.' {
-			fail("extractors[%d]: match must be a file suffix like .py, got %q", i, x.Match)
+		switch {
+		case x.Match == "*":
+			// One fallback only: two wildcards would race for every
+			// suffix-less ref with registry order as the tiebreaker.
+			wildcards++
+			if wildcards > 1 {
+				fail("extractors[%d]: only one \"*\" fallback entry is allowed", i)
+			}
+		case len(x.Match) < 2 || x.Match[0] != '.':
+			fail("extractors[%d]: match must be a file suffix like .py, or \"*\" for suffix-less refs, got %q", i, x.Match)
 		}
 		if x.Command == "" {
 			fail("extractors[%d]: command is required", i)

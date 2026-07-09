@@ -4,13 +4,30 @@ version: 2
 project_name: wirefit
 
 builds:
-  - main: ./cmd/wirefit
+  - id: wirefit
+    main: ./cmd/wirefit
     binary: wirefit
     env: [CGO_ENABLED=0]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w -X main.version={{ .Version }}
+  # Official external extractors (docs/extractor-protocol.md), shipped in the
+  # same archive so `extractors: [{command: "wirefit-ts"}]` works out of the box.
+  - id: wirefit-ts
+    main: ./cmd/wirefit-ts
+    binary: wirefit-ts
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags: [-s -w]
+  - id: wirefit-java
+    main: ./cmd/wirefit-java
+    binary: wirefit-java
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags: [-s -w]
 
 archives:
   - formats: [tar.gz]

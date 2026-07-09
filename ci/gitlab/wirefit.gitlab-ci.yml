@@ -20,7 +20,11 @@
   variables:
     WIREFIT_MANIFEST: contracts.yaml
   before_script:
-    - go install github.com/wirefit/wirefit/cmd/wirefit@latest   # TODO: pinned release binary + checksum
+    # TODO: pinned release binaries + checksums. wirefit-ts/wirefit-java are the
+    # official external extractors the manifest routes to via extractors:.
+    - go install github.com/wirefit/wirefit/cmd/wirefit@latest
+    - go install github.com/wirefit/wirefit/cmd/wirefit-ts@latest
+    - go install github.com/wirefit/wirefit/cmd/wirefit-java@latest
     - git clone --depth 1 "$WIREFIT_CONTRACTS_REPO" .wirefit/contracts-repo
 
 wirefit-check:

@@ -17,7 +17,8 @@
 #           with:
 #             contracts-repo: acme/contracts
 #             token: ${{ secrets.CONTRACTS_REPO_TOKEN }}
-#             # no classpath needed: wirefit asks maven/gradle itself
+#             # java classpath/build-tool config goes on the wirefit-java command
+#             # in contracts.yaml (extractors:), not here
 name: wirefit contract check
 description: Block PRs that break consumer contracts (schema-only, no pact files)
 
@@ -31,11 +32,6 @@ inputs:
   manifest:
     description: path to contracts.yaml
     default: contracts.yaml
-  classpath:
-    description: >-
-      optional classpath override; by default wirefit interrogates the project's
-      own build tool (maven/gradle) — no build-file changes needed
-    default: ''
 
 runs:
   using: composite
@@ -47,18 +43,20 @@ runs:
         token: ${{ inputs.token }}
         path: .wirefit/contracts-repo
 
-    - name: Install wirefit
+    - name: Install wirefit + external extractors
       shell: bash
-      run: go install github.com/wirefit/wirefit/cmd/wirefit@latest   # TODO: pinned release binary + checksum
+      # TODO: pinned release binaries + checksums. wirefit-ts/wirefit-java are
+      # the official Java/TS extractors; the manifest routes to them via
+      # extractors:. Java classpath/build-tool config lives on the wirefit-java
+      # command there, not on `wirefit extract`.
+      run: |
+        go install github.com/wirefit/wirefit/cmd/wirefit@latest
+        go install github.com/wirefit/wirefit/cmd/wirefit-ts@latest
+        go install github.com/wirefit/wirefit/cmd/wirefit-java@latest
 
     - name: Extract candidate IR
       shell: bash
-      run: |
-        if [ -n "${{ inputs.classpath }}" ]; then
-          wirefit extract -f "${{ inputs.manifest }}" --classpath "${{ inputs.classpath }}"
-        else
-          wirefit extract -f "${{ inputs.manifest }}"   # build-tool auto-resolution
-        fi
+      run: wirefit extract -f "${{ inputs.manifest }}"
 
     - name: Check (PR) or publish (main)
       shell: bash

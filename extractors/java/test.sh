@@ -2,7 +2,7 @@
 # Fixture round-trip: compile extractor + fixtures, extract, validate through
 # the Go IR parser, and check hash determinism across two runs.
 # The canonical extractor source lives in internal/javatool/WirefitExtract.java
-# (embedded into the wirefit binary); this script compiles that same file.
+# (embedded into the wirefit-java binary); this script compiles that same file.
 set -euo pipefail
 cd "$(dirname "$0")"
 

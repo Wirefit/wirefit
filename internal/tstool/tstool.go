@@ -1,5 +1,5 @@
 // Package tstool makes the TypeScript extractor self-bootstrapping: the
-// extract.js source is embedded in the wirefit binary and its pinned
+// extract.js source is embedded in the wirefit-ts binary and its pinned
 // typescript dependency is npm-installed once into the user cache
 // (Phase 2, PRD 2.1).
 package tstool
