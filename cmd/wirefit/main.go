@@ -73,7 +73,7 @@ func usage() {
 usage: wirefit <command> [flags]
 
   validate   validate a contracts.yaml manifest
-  extract    extract IR from DTOs declared in the manifest (java)
+  extract    extract IR from DTOs declared in the manifest
   check      check candidate IR against the contracts repo (PR gate)
   publish    publish extracted IR to the contracts repo (merge to main)
   hash       print the canonical content hash of an IR file

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Cross-language conformance harness (PRD 2.7): for every case under
-# conformance/cases/<Name>/, the Java and TypeScript fixtures must produce
-# HASH-IDENTICAL IR. This is the proof that the IR abstracts the type system,
-# not the language — every later extractor must pass the same corpus.
+# Cross-language conformance harness (PRD 2.7): every extractor must produce
+# HASH-IDENTICAL IR for each case under conformance/cases/<Name>/. The
+# committed corpus (internal/confexpected/expected/) is the arbiter: ts and
+# java run through the public protocol via `wirefit extractor-test`, exactly
+# like any third-party extractor; go cases run through `wirefit extract`
+# (the built-in gotool).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -12,95 +14,84 @@ CP="$JARS/jackson-core-2.22.0.jar:$JARS/jackson-databind-2.22.0.jar:$JARS/jackso
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+go build -o "$WORK/wirefit-java" ./cmd/wirefit-java
+go build -o "$WORK/wirefit-ts" ./cmd/wirefit-ts
+
+# The corpus's "service build": wirefit-java extracts from compiled classes.
+javac --release 17 -cp "$CP" -d "$WORK/classes" conformance/cases/*/*.java
+JAVA_CMD=("$WORK/wirefit-java" --classpath "$WORK/classes:$CP")
+
+# --update-expected regenerates the committed corpus from the java extractor
+# (the reference implementation), through the same protocol.
+if [ "${1:-}" = "--update-expected" ]; then
+  python3 - "${JAVA_CMD[@]}" <<'EOF'
+import json, os, subprocess, sys
+cases = sorted(os.listdir("conformance/cases"))
+req = {"schemaVersion": 1, "projectDir": ".",
+       "specs": [{"ref": f"conformance.{c}", "role": "provided"} for c in cases]}
+p = subprocess.run(sys.argv[1:], input=json.dumps(req), capture_output=True, text=True, check=True)
+resp = json.loads(p.stdout)
+if resp.get("error"):
+    sys.exit(f"wirefit-java: {resp['error']}")
+for c in cases:
+    with open(f"internal/confexpected/expected/{c}.ir.json", "w") as f:
+        json.dump(resp["schemas"][f"conformance.{c}"], f)
+print(f"updated expected IR for {len(cases)} cases")
+EOF
+fi
+
+# Build wirefit AFTER a possible corpus update: extractor-test compares
+# against the expected IR embedded in this binary.
 go build -o "$WORK/wirefit" ./cmd/wirefit
 
-# --- Java side: compile all cases, extract each --------------------------
-javac --release 17 -cp "$CP" -d "$WORK/classes" \
-  internal/javatool/WirefitExtract.java conformance/cases/*/*.java
-
-# --- TS side: one generated manifest covering all cases ------------------
 {
-  echo "service: conformance-ts"
-  echo "schema-version: 1"
-  echo "consumes:"
+  echo "cases:"
+  for dir in conformance/cases/*/; do
+    name="$(basename "$dir")"
+    echo "  - {name: $name, spec: conformance.$name}"
+  done
+} > "$WORK/java-cases.yaml"
+{
+  echo "cases:"
   for dir in conformance/cases/*/; do
     name="$(basename "$dir")"
     [ -f "$dir/$name.ts" ] || continue
-    lower="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
-    echo "  - id: conformance.$lower"
-    echo "    provider: javaside"
-    echo "    dto: conformance/cases/$name/$name.ts#$name"
+    echo "  - {name: $name, spec: \"conformance/cases/$name/$name.ts#$name\"}"
   done
-} > "$WORK/contracts.yaml"
-"$WORK/wirefit" extract -f "$WORK/contracts.yaml" --project . --ir "$WORK/ts-ir"
-
-# --- compare ---------------------------------------------------------------
-UPDATE="${1:-}"
-mkdir -p internal/confexpected/expected
+} > "$WORK/ts-cases.yaml"
 
 fail=0
+echo "== java (protocol) =="
+"$WORK/wirefit" extractor-test --cases "$WORK/java-cases.yaml" --project . -- "${JAVA_CMD[@]}" || fail=1
+echo "== ts (protocol) =="
+"$WORK/wirefit" extractor-test --cases "$WORK/ts-cases.yaml" --project . -- "$WORK/wirefit-ts" || fail=1
+
+# Go column (PRD 3.1): cases without a .go fixture are documented N/A
+# (Go has no enums or idiomatic tagged unions).
+echo "== go (built-in) =="
 for dir in conformance/cases/*/; do
   name="$(basename "$dir")"
-  lower="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
-  java -cp "$CP:$WORK/classes" io.wirefit.extract.WirefitExtract "conformance.$name" > "$WORK/$name.java.json"
-  python3 -c "
-import json, sys
-d = json.load(open('$WORK/$name.java.json'))
-json.dump(d['conformance.$name'], open('$WORK/$name.java.ir.json', 'w'))
-"
-  jhash="$("$WORK/wirefit" hash "$WORK/$name.java.ir.json")"
-  if [ -f "$dir/$name.ts" ]; then
-    thash="$("$WORK/wirefit" hash "$WORK/ts-ir/consumes/javaside/conformance.$lower.ir.json")"
-  else
-    thash="$jhash"   # ts n/a for this case
-  fi
-  if [ "$UPDATE" = "--update-expected" ]; then
-    cp "$WORK/$name.java.ir.json" "internal/confexpected/expected/$name.ir.json"
-  fi
-  if [ -f "internal/confexpected/expected/$name.ir.json" ]; then
-    ehash="$("$WORK/wirefit" hash "internal/confexpected/expected/$name.ir.json")"
-    if [ "$ehash" != "$jhash" ]; then
-      echo "FAIL $name: drifted from committed expected IR (run with --update-expected only if the change is intentional)"
-      fail=1
-    fi
-  fi
-  # Go column (PRD 3.1): cases without a .go fixture are documented N/A
-  # (Go has no enums or idiomatic tagged unions).
   gofile="$(ls "$dir"/*.go 2>/dev/null | head -1 || true)"
-  if [ -n "$gofile" ]; then
-    {
-      echo "service: conformance-go"
-      echo "schema-version: 1"
-      echo "consumes:"
-      echo "  - id: conformance.$lower"
-      echo "    provider: javaside"
-      echo "    dto: ./cases/$name#$name"
-    } > "$WORK/go-$name.yaml"
-    "$WORK/wirefit" extract -f "$WORK/go-$name.yaml" --project conformance --ir "$WORK/go-ir-$name" >/dev/null
-    ghash="$("$WORK/wirefit" hash "$WORK/go-ir-$name/consumes/javaside/conformance.$lower.ir.json")"
-    if [ "$ghash" != "$jhash" ]; then
-      echo "FAIL $name (go)"
-      echo "  java: $jhash"
-      echo "  go:   $ghash"
-      fail=1
-    fi
-  fi
-  if [ "$jhash" = "$thash" ]; then
-    langs="java"
-    [ -f "$dir/$name.ts" ] && langs="$langs+ts"
-    [ -n "$gofile" ] && langs="$langs+go"
-    echo "OK   $name  $jhash ($langs)"
+  [ -n "$gofile" ] || continue
+  lower="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
+  {
+    echo "service: conformance-go"
+    echo "schema-version: 1"
+    echo "consumes:"
+    echo "  - id: conformance.$lower"
+    echo "    provider: javaside"
+    echo "    dto: ./cases/$name#$name"
+  } > "$WORK/go-$name.yaml"
+  "$WORK/wirefit" extract -f "$WORK/go-$name.yaml" --project conformance --ir "$WORK/go-ir-$name" >/dev/null
+  ghash="$("$WORK/wirefit" hash "$WORK/go-ir-$name/consumes/javaside/conformance.$lower.ir.json")"
+  ehash="$("$WORK/wirefit" hash "internal/confexpected/expected/$name.ir.json")"
+  if [ "$ghash" = "$ehash" ]; then
+    echo "OK   $name  $ghash"
   else
-    echo "FAIL $name"
-    echo "  java: $jhash"
-    echo "  ts:   $thash"
-    python3 - "$WORK/$name.java.ir.json" "$WORK/ts-ir/consumes/javaside/conformance.$lower.ir.json" <<'EOF'
-import json, sys, difflib
-a, b = (json.dumps(json.load(open(f)), indent=1, sort_keys=True).splitlines() for f in sys.argv[1:3])
-print('\n'.join(difflib.unified_diff(a, b, 'java', 'ts', lineterm='')))
-EOF
+    echo "FAIL $name: go $ghash, expected $ehash"
     fail=1
   fi
 done
+
 [ "$fail" = 0 ] && echo "conformance: all cases hash-identical across extractors"
 exit $fail

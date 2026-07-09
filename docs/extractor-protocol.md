@@ -6,6 +6,19 @@ An extractor is **any executable** that turns DTO references into wirefit IR. Th
 community surface (PRD 3.2): a PHP/C#/Kotlin/Python extractor is an independent package that
 implements this protocol — no wirefit source required.
 
+**Official external extractors.** The same protocol carries the extractors wirefit ships:
+
+| extractor | handles | route |
+|---|---|---|
+| `wirefit-ts` | TypeScript / Zod (`.ts`, `.tsx`) | `extractors: {match: ".ts", command: "wirefit-ts"}` |
+| `wirefit-java` | Java / Jackson (bare FQNs) | `extractors: {match: "*", command: "wirefit-java ..."}` |
+| `extractors/python` | Pydantic v2 (`.py`) | `extractors: {match: ".py", command: "python3 .../wirefit_extract_py.py"}` |
+
+`wirefit-ts` and `wirefit-java` are Go binaries in the wirefit release archive
+(`go install github.com/wirefit/wirefit/cmd/wirefit-ts@latest`, `.../wirefit-java@latest`);
+Java classpath/build-tool/mapper config rides on the `wirefit-java` command in the manifest.
+Only Go and the schema importers (`.proto`/`.avsc`/`.graphql`) stay built into the core.
+
 ## Wire format
 
 Request on **stdin**, response on **stdout**, both JSON. Diagnostics go to stderr.

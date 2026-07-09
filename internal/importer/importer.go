@@ -8,17 +8,34 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/wirefit/wirefit/internal/extract"
 )
+
+// Extractor adapts the importers to the extract registry.
+type Extractor struct {
+	Opts Options
+}
+
+func (Extractor) Match(ref string) bool { return IsSpec(ref) }
+
+// Extract implements extract.Extractor. A schema file means the same thing
+// on both sides, so roles are ignored.
+func (e Extractor) Extract(projectDir string, specs []extract.Spec) (map[string]json.RawMessage, error) {
+	out := map[string]json.RawMessage{}
+	for _, ref := range extract.Refs(specs) {
+		raw, err := Import(projectDir, ref, e.Opts)
+		if err != nil {
+			return nil, err
+		}
+		out[ref] = raw
+	}
+	return out, nil
+}
 
 // IsSpec reports whether a dto reference targets an importer, by file suffix.
 func IsSpec(dto string) bool {
-	file, _, _ := strings.Cut(dto, "#")
-	for _, suf := range []string{".proto", ".avsc", ".graphql", ".gql"} {
-		if strings.HasSuffix(file, suf) {
-			return true
-		}
-	}
-	return false
+	return extract.MatchSuffix(dto, ".proto", ".avsc", ".graphql", ".gql")
 }
 
 // Options carries importer-relevant manifest settings.

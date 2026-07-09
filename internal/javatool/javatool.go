@@ -1,5 +1,5 @@
 // Package javatool makes the Java extractor self-bootstrapping: the
-// WirefitExtract source is embedded in the wirefit binary, its Jackson dependencies are
+// WirefitExtract source is embedded in the wirefit-java binary, its Jackson dependencies are
 // downloaded once from Maven Central with pinned SHA-256 checksums, and the
 // classes are compiled on demand into the user cache. Services need zero
 // build-file changes (Phase 1 amendment to PRD 1.3).

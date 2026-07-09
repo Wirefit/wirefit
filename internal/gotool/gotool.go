@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wirefit/wirefit/internal/extract"
 	"github.com/wirefit/wirefit/internal/extrun"
 )
 
@@ -28,6 +29,17 @@ var typeNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 func IsSpec(dto string) bool {
 	file, _, ok := strings.Cut(dto, "#")
 	return ok && (strings.HasPrefix(file, "./") || file == ".")
+}
+
+// Extractor adapts the Go extractor to the extract registry.
+type Extractor struct{}
+
+func (Extractor) Match(ref string) bool { return IsSpec(ref) }
+
+// Extract implements extract.Extractor. Go structs draw no input/output
+// distinction, so roles are ignored.
+func (Extractor) Extract(projectDir string, specs []extract.Spec) (map[string]json.RawMessage, error) {
+	return Run(projectDir, extract.Refs(specs))
 }
 
 // Run extracts IR for the given specs by generating and running a program in

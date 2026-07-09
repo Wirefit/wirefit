@@ -13,29 +13,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/wirefit/wirefit/internal/diff"
-	"github.com/wirefit/wirefit/internal/extproto"
+	"github.com/wirefit/wirefit/internal/extract"
 	"github.com/wirefit/wirefit/internal/gotool"
 	"github.com/wirefit/wirefit/internal/importer"
 	"github.com/wirefit/wirefit/internal/ir"
-	"github.com/wirefit/wirefit/internal/javatool"
 	"github.com/wirefit/wirefit/internal/manifest"
 	"github.com/wirefit/wirefit/internal/override"
 	"github.com/wirefit/wirefit/internal/policy"
 	"github.com/wirefit/wirefit/internal/store"
-	"github.com/wirefit/wirefit/internal/tstool"
 )
-
-// isTSSpec reports whether a manifest dto reference targets the TypeScript
-// extractor: a file path ending in .ts/.tsx with a "#TypeName" selector.
-func isTSSpec(dto string) bool {
-	file, _, _ := strings.Cut(dto, "#")
-	return strings.HasSuffix(file, ".ts") || strings.HasSuffix(file, ".tsx")
-}
 
 func loadManifest(path string) (*manifest.Manifest, int) {
 	m, err := manifest.Load(path)
@@ -57,13 +47,7 @@ func loadManifest(path string) (*manifest.Manifest, int) {
 func cmdExtract(args []string) int {
 	fs := flag.NewFlagSet("extract", flag.ContinueOnError)
 	mf := fs.String("f", "contracts.yaml", "manifest file")
-	classpath := fs.String("classpath", "", "java: service classpath override (skips build-tool resolution)")
-	buildTool := fs.String("build-tool", "auto", "java: auto|maven|gradle|none (how to resolve the service classpath)")
 	projectDir := fs.String("project", ".", "service project directory")
-	extractorCP := fs.String("extractor-cp", os.Getenv("WIREFIT_EXTRACTOR_CP"),
-		"override for WirefitExtract+jackson classpath (default: self-bootstrapped cache)")
-	mapperHint := fs.String("mapper", "", "ObjectMapper provider <class-fqn>#<static-method> (overrides manifest settings.java-mapper)")
-	javaBin := fs.String("java", "java", "java binary")
 	irDir := fs.String("ir", ".wirefit/ir", "output directory for extracted IR")
 	if fs.Parse(args) != nil {
 		return 2
@@ -72,139 +56,31 @@ func cmdExtract(args []string) int {
 	if code != 0 {
 		return code
 	}
-
-	// dto → list of relative output paths (the same DTO may back several interactions).
-	targets := map[string][]string{}
-	for _, p := range m.Provides {
-		src := p.DTO
-		if src == "" {
-			src = p.Schema // schema-native artifact IS the contract (Phase 5)
-		}
-		targets[src] = append(targets[src], filepath.Join("provides", p.ID+".ir.json"))
-	}
-	for _, c := range m.Consumes {
-		targets[c.DTO] = append(targets[c.DTO], filepath.Join("consumes", c.Provider, c.ID+".ir.json"))
+	if m.Settings.JavaMapper != "" {
+		fmt.Fprintln(os.Stderr, "wirefit extract: warning: settings.java-mapper is unused; pass --mapper on the wirefit-java extractor command instead")
 	}
 
-	// Language routing per DTO reference (PRD 2.1): "path/file.ts#Type" → ts,
-	// java FQN → java. Mixed manifests extract with both toolchains. The TS
-	// side also needs the manifest role per spec: Zod `.default()` fields are
-	// required on the provider (output) side but optional on the consumer
-	// (input) side (PRD 2.3).
-	provided := map[string]bool{}
-	for _, p := range m.Provides {
-		provided[p.DTO] = true
-	}
-	consumed := map[string]bool{}
-	for _, c := range m.Consumes {
-		consumed[c.DTO] = true
-	}
-	external := func(dto string) []string { // third-party extractor command (PRD 3.2)
-		file, _, _ := strings.Cut(dto, "#")
-		for _, x := range m.Extractors {
-			if strings.HasSuffix(file, x.Match) {
-				return strings.Fields(x.Command)
-			}
-		}
-		return nil
-	}
-	extracted := map[string]json.RawMessage{}
-	var javaFQNs, goSpecs, tsProvided, tsConsumed []string
-	extReqs := map[string]*extproto.Request{} // command line → request
-	for dto := range targets {
-		switch {
-		case importer.IsSpec(dto):
-			raw, err := importer.Import(*projectDir, dto, importer.Options{GraphQLSchema: m.Settings.GraphQLSchema})
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "wirefit extract:", err)
-				return 2
-			}
-			extracted[dto] = raw
-			continue
-		case external(dto) != nil:
-			cmdLine := strings.Join(external(dto), "\x00")
-			req := extReqs[cmdLine]
-			if req == nil {
-				req = &extproto.Request{ProjectDir: *projectDir}
-				extReqs[cmdLine] = req
-			}
-			role := "consumed"
-			if provided[dto] {
-				role = "provided"
-			}
-			req.Specs = append(req.Specs, extproto.Spec{Ref: dto, Role: role})
-		case gotool.IsSpec(dto):
-			goSpecs = append(goSpecs, dto)
-		case !isTSSpec(dto):
-			javaFQNs = append(javaFQNs, dto)
-		case provided[dto] && consumed[dto]:
-			fmt.Fprintf(os.Stderr, "wirefit extract: %s is used in both provides and consumes; split the schema (zod io semantics differ per side)\n", dto)
-			return 2
-		case provided[dto]:
-			tsProvided = append(tsProvided, dto)
-		default:
-			tsConsumed = append(tsConsumed, dto)
-		}
-	}
-	sort.Strings(javaFQNs)
-	sort.Strings(goSpecs)
-	sort.Strings(tsProvided)
-	sort.Strings(tsConsumed)
+	targets, specs := extractPlan(m)
 
-	for cmdLine, req := range extReqs {
-		sort.Slice(req.Specs, func(i, j int) bool { return req.Specs[i].Ref < req.Specs[j].Ref })
-		resp, err := extproto.Invoke(strings.Split(cmdLine, "\x00"), *req)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit extract:", err)
-			return 2
-		}
-		for k, v := range resp.Schemas {
-			extracted[k] = v
-		}
+	// Routing per DTO reference (PRD 2.1) lives in the extractor registry:
+	// each extractor owns its Match rule, first match in registry order wins.
+	// Suffix-routed externals (PRD 3.2) outrank gotool; the wildcard external
+	// (java FQNs have no syntactic marker) goes last so it cannot swallow
+	// "./pkg#Type" refs. Roles matter to extractors whose source
+	// distinguishes input/output semantics, e.g. Zod `.default()` (PRD 2.3).
+	suffixExt, wildcardExt := externals(m.Extractors)
+	reg := []extract.Extractor{
+		// Schema-native formats stay with the importer even when a manifest
+		// extractor claims their suffix; externals warns about the shadowing.
+		importer.Extractor{Opts: importer.Options{GraphQLSchema: m.Settings.GraphQLSchema}},
 	}
-
-	if len(goSpecs) > 0 {
-		goOut, err := gotool.Run(*projectDir, goSpecs)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit extract:", err)
-			return 2
-		}
-		for k, v := range goOut {
-			extracted[k] = v
-		}
-	}
-
-	if len(tsProvided)+len(tsConsumed) > 0 {
-		tsOut, err := tstool.Run(*projectDir, tsProvided, tsConsumed)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit extract:", err)
-			return 2
-		}
-		for k, v := range tsOut {
-			extracted[k] = v
-		}
-	}
-
-	if len(javaFQNs) > 0 {
-		mapper := *mapperHint
-		if mapper == "" {
-			mapper = m.Settings.JavaMapper
-		}
-		javaOut, err := javatool.Run(javatool.RunOptions{
-			ProjectDir:  *projectDir,
-			Classpath:   *classpath,
-			BuildTool:   *buildTool,
-			ExtractorCP: *extractorCP,
-			Mapper:      mapper,
-			JavaBin:     *javaBin,
-		}, javaFQNs)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit extract:", err)
-			return 2
-		}
-		for k, v := range javaOut {
-			extracted[k] = v
-		}
+	reg = append(reg, suffixExt...)
+	reg = append(reg, gotool.Extractor{})
+	reg = append(reg, wildcardExt...)
+	extracted, err := extract.Run(reg, *projectDir, specs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit extract:", err)
+		return 2
 	}
 	// Mirror check (PRD 5.7): when an interaction declares BOTH code dto and
 	// schema artifact, they must agree byte-for-byte. Drift always fails —
@@ -275,6 +151,57 @@ func cmdExtract(args []string) int {
 	}
 	fmt.Printf("extracted %s into %s\n", plural(len(targets), "schema"), *irDir)
 	return 0
+}
+
+// extractPlan maps manifest interactions to extraction inputs: dto → relative
+// IR output paths (the same DTO may back several interactions) plus the
+// (ref, role) spec list, which extract.Run dedups. A schema-only provides
+// extracts the schema artifact itself, still as provided (Phase 5).
+func extractPlan(m *manifest.Manifest) (targets map[string][]string, specs []extract.Spec) {
+	targets = map[string][]string{}
+	for _, p := range m.Provides {
+		src := p.DTO
+		if src == "" {
+			src = p.Schema // schema-native artifact IS the contract (Phase 5)
+		}
+		targets[src] = append(targets[src], filepath.Join("provides", p.ID+".ir.json"))
+		specs = append(specs, extract.Spec{Ref: src, Role: "provided"})
+	}
+	for _, c := range m.Consumes {
+		targets[c.DTO] = append(targets[c.DTO], filepath.Join("consumes", c.Provider, c.ID+".ir.json"))
+		specs = append(specs, extract.Spec{Ref: c.DTO, Role: "consumed"})
+	}
+	return targets, specs
+}
+
+// externals merges manifest extractor entries sharing a command into one
+// registry entry, so the command is spawned once with its full spec set.
+// The wildcard fallback ("*", suffix-less refs like java FQNs) comes back
+// separately: it registers after gotool, suffix rules before it. Entries for
+// suffixes the built-in importer owns can never fire (the importer is
+// registered ahead of them); warn instead of failing silently.
+func externals(entries []manifest.ExternalExtractor) (suffix, wildcard []extract.Extractor) {
+	byCmd := map[string]*extract.External{}
+	for _, x := range entries {
+		if x.Match == "*" {
+			wildcard = append(wildcard, &extract.External{Suffixes: []string{"*"}, Command: strings.Fields(x.Command)})
+			continue
+		}
+		if importer.IsSpec(x.Match) {
+			fmt.Fprintf(os.Stderr, "wirefit extract: warning: extractor for %s never runs; the built-in importer handles that format\n", x.Match)
+			continue
+		}
+		cmd := strings.Fields(x.Command)
+		key := strings.Join(cmd, "\x00")
+		if e := byCmd[key]; e != nil {
+			e.Suffixes = append(e.Suffixes, x.Match)
+			continue
+		}
+		e := &extract.External{Suffixes: []string{x.Match}, Command: cmd}
+		byCmd[key] = e
+		suffix = append(suffix, e)
+	}
+	return suffix, wildcard
 }
 
 // ------------------------------------------------------------------ check --

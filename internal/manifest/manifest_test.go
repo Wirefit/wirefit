@@ -68,6 +68,39 @@ settings:
 	}
 }
 
+func TestExtractorsValidation(t *testing.T) {
+	cases := []struct {
+		name, yaml, wantErr string
+	}{
+		{"suffix ok", `extractors: [{match: ".py", command: "wirefit-py"}]`, ""},
+		{"wildcard ok", `extractors: [{match: "*", command: "wirefit-java"}]`, ""},
+		{"bad match", `extractors: [{match: "py", command: "x"}]`, "file suffix"},
+		{"missing command", `extractors: [{match: ".py"}]`, "command is required"},
+		{"two wildcards", `extractors: [{match: "*", command: "a"}, {match: "*", command: "b"}]`, "only one"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m, err := Parse([]byte("service: x\nschema-version: 1\n" + c.yaml + "\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			errs := m.Validate()
+			if c.wantErr == "" {
+				if len(errs) != 0 {
+					t.Fatalf("unexpected validation errors: %v", errs)
+				}
+				return
+			}
+			for _, e := range errs {
+				if strings.Contains(e.Error(), c.wantErr) {
+					return
+				}
+			}
+			t.Fatalf("no error containing %q in %v", c.wantErr, errs)
+		})
+	}
+}
+
 func TestConsumesFrom(t *testing.T) {
 	m, err := Parse([]byte(valid))
 	if err != nil {
