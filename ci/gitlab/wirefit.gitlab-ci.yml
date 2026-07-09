@@ -60,3 +60,16 @@ wirefit-publish:
     - wirefit extract -f "$WIREFIT_MANIFEST"
     - wirefit check -f "$WIREFIT_MANIFEST" --contracts-repo .wirefit/contracts-repo
     - wirefit publish -f "$WIREFIT_MANIFEST" --contracts-repo .wirefit/contracts-repo
+
+# GitLab Pages requires this exact job name and a `public/` artifact.
+# Exit 1 only flags INCOMPATIBLE edges; the page *is* the report, so still publish it
+# (a failing pages job would never deploy).
+pages:
+  extends: .wirefit-base
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - mkdir -p public
+    - wirefit matrix --contracts-repo .wirefit/contracts-repo -o public/index.html || [ $? -eq 1 ]
+  artifacts:
+    paths: [public]

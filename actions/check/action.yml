@@ -13,7 +13,7 @@
 #       runs-on: ubuntu-latest
 #       steps:
 #         - uses: actions/checkout@v4
-#         - uses: wirefit/wirefit/action@v0   # placeholder org/repo
+#         - uses: Wirefit/wirefit/actions/check@v0
 #           with:
 #             contracts-repo: acme/contracts
 #             token: ${{ secrets.CONTRACTS_REPO_TOKEN }}
@@ -32,6 +32,9 @@ inputs:
   manifest:
     description: path to contracts.yaml
     default: contracts.yaml
+  version:
+    description: wirefit version to install (a module version like v0.3.0, or latest)
+    default: latest
 
 runs:
   using: composite
@@ -50,9 +53,9 @@ runs:
       # extractors:. Java classpath/build-tool config lives on the wirefit-java
       # command there, not on `wirefit extract`.
       run: |
-        go install github.com/wirefit/wirefit/cmd/wirefit@latest
-        go install github.com/wirefit/wirefit/cmd/wirefit-ts@latest
-        go install github.com/wirefit/wirefit/cmd/wirefit-java@latest
+        go install github.com/wirefit/wirefit/cmd/wirefit@${{ inputs.version }}
+        go install github.com/wirefit/wirefit/cmd/wirefit-ts@${{ inputs.version }}
+        go install github.com/wirefit/wirefit/cmd/wirefit-java@${{ inputs.version }}
 
     - name: Extract candidate IR
       shell: bash

@@ -1,0 +1,73 @@
+# wirefit matrix pages: publish the deploy matrix as a GitHub Pages site.
+#
+# Renders `wirefit matrix --format html` from the contracts repo and deploys it
+# with the official Pages actions. Only the contracts repo is read; no checkout
+# of the calling repo or extraction is needed.
+#
+# Usage (typically in the contracts repo, on push to main and/or a schedule):
+#
+#   on:
+#     push: { branches: [main] }
+#     schedule: [{ cron: '0 6 * * *' }]
+#   permissions:
+#     pages: write
+#     id-token: write
+#   jobs:
+#     matrix-pages:
+#       runs-on: ubuntu-latest
+#       environment:
+#         name: github-pages
+#       steps:
+#         - uses: Wirefit/wirefit/actions/pages@v0
+#           with:
+#             contracts-repo: acme/contracts
+#             token: ${{ secrets.CONTRACTS_REPO_TOKEN }}
+name: wirefit matrix pages
+description: Publish the org-wide deploy matrix as a GitHub Pages site
+
+inputs:
+  contracts-repo:
+    description: owner/repo of the contracts repository
+    required: true
+  token:
+    description: token with read access to the contracts repo
+    required: true
+  stale-days:
+    description: deploy records older than this are labeled stale
+    default: '30'
+  version:
+    description: wirefit version to install (a module version like v0.3.0, or latest)
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    - name: Check out contracts repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.contracts-repo }}
+        token: ${{ inputs.token }}
+        path: .wirefit/contracts-repo
+
+    - name: Install wirefit
+      shell: bash
+      run: go install github.com/wirefit/wirefit/cmd/wirefit@${{ inputs.version }}   # TODO: pinned release binary + checksum
+
+    - name: Render matrix HTML
+      shell: bash
+      run: |
+        mkdir -p .wirefit/site
+        # exit 1 only flags INCOMPATIBLE edges; the page *is* the report, so still publish it
+        wirefit matrix --contracts-repo .wirefit/contracts-repo --stale-days "${{ inputs.stale-days }}" \
+          -o .wirefit/site/index.html || [ $? -eq 1 ]
+
+    - name: Configure Pages
+      uses: actions/configure-pages@v5
+
+    - name: Upload site
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: .wirefit/site
+
+    - name: Deploy to GitHub Pages
+      uses: actions/deploy-pages@v4

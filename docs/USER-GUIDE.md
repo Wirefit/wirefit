@@ -160,7 +160,7 @@ Exit codes everywhere: **0** ok/warnings · **1** breaking · **2** config/input
 | `wirefit publish` | write IR + manifest copy to the contracts repo (merge to main) | `--contracts-repo`, `--no-commit` |
 | `wirefit record-deploy` | pin published contracts as deployed in an env | `--env`, `--contracts-repo` |
 | `wirefit can-i-deploy` | candidate vs what is **deployed** in an env | `--env`, `--ir`, `--stale-days`, `--report` |
-| `wirefit matrix` | org-wide deployed compatibility table | `--format md\|json` |
+| `wirefit matrix` | org-wide deployed compatibility table | `--format term\|md\|html\|json`, `-o` |
 | `wirefit override add` | append a justified, expiring override | `--justification` (required), `--days`, auto-fills from last check |
 | `wirefit extractor-test` | conformance kit for third-party extractors | `--cases`, `--project`, `-- <command>` |
 | `wirefit diff` / `compat` / `hash` | low-level IR plumbing | see `--help` |
@@ -170,7 +170,7 @@ Exit codes everywhere: **0** ok/warnings · **1** breaking · **2** config/input
 **GitHub** — one step, no classpath config needed:
 
 ```yaml
-- uses: wirefit/wirefit/action@v0   # see action/action.yml
+- uses: Wirefit/wirefit/actions/check@v0   # see actions/check/action.yml
   with:
     contracts-repo: acme/contracts
     token: ${{ secrets.CONTRACTS_REPO_TOKEN }}
@@ -180,6 +180,11 @@ PR → `check` + sticky markdown comment. Push to main → `check` + `publish`.
 
 **GitLab** — include `ci/gitlab/wirefit.gitlab-ci.yml`, set `WIREFIT_CONTRACTS_REPO` and
 `CONTRACTS_TOKEN`. MR note upsert + pipeline gate. (Status: beta.)
+
+**Matrix as a Pages site**: publish the HTML deploy matrix so the whole org can see it:
+GitHub via `Wirefit/wirefit/actions/pages@v0` (needs `pages: write` + `id-token: write`,
+see `actions/pages/action.yml`); GitLab via the `pages` job that the include above already
+provides (runs on the default branch, serves `wirefit matrix -o public/index.html`).
 
 **Deploy pipelines** add two lines:
 
