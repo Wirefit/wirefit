@@ -78,7 +78,7 @@ func TestRunRouting(t *testing.T) {
 			name:     "no match fails with a suffix routing hint",
 			suffixes: []string{".ts"},
 			specs:    []Spec{{Ref: "a.py#Order", Role: "provided"}},
-			wantErr:  `no extractor matches a.py#Order; add an extractors entry to contracts.yaml, e.g. {match: ".py", command: "wirefit-ts"}`,
+			wantErr:  `no extractor matches a.py#Order; add an extractors entry to contracts.yaml, e.g. {match: ".py", command: "<your-extractor>"}`,
 		},
 		{
 			name:     "no match on a bare FQN hints the wildcard fallback",
@@ -136,17 +136,6 @@ func TestMatchSuffix(t *testing.T) {
 		if got := MatchSuffix(tt.ref, tt.sufs...); got != tt.want {
 			t.Errorf("MatchSuffix(%q, %v) = %v, want %v", tt.ref, tt.sufs, got, tt.want)
 		}
-	}
-}
-
-func TestExternalRejectsBothRoles(t *testing.T) {
-	_, err := External{Suffixes: []string{".ts"}, Command: []string{"wirefit-ts"}}.
-		Extract(".", []Spec{
-			{Ref: "api.ts#Order", Role: "consumed"},
-			{Ref: "api.ts#Order", Role: "provided"},
-		})
-	if err == nil || !strings.Contains(err.Error(), "both provides and consumes") {
-		t.Fatalf("want both-roles error, got %v", err)
 	}
 }
 

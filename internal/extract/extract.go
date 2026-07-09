@@ -93,7 +93,7 @@ func Refs(specs []Spec) []string {
 func routeHint(ref string) string {
 	file, sel, _ := strings.Cut(ref, "#")
 	if ext := path.Ext(file); ext != "" && sel != "" {
-		return fmt.Sprintf("{match: %q, command: \"wirefit-ts\"}", ext)
+		return fmt.Sprintf("{match: %q, command: \"<your-extractor>\"}", ext)
 	}
 	return `{match: "*", command: "wirefit-java"}`
 }
@@ -125,19 +125,16 @@ type External struct {
 func (x External) Match(ref string) bool { return MatchSuffix(ref, x.Suffixes...) }
 
 func (x External) Extract(projectDir string, specs []Spec) (map[string]json.RawMessage, error) {
-	// The wire protocol carries one spec per ref. Input and output semantics
-	// can differ (e.g. zod defaults), so a ref used on both sides is the
-	// user's ambiguity to resolve, not ours to guess.
-	role := map[string]string{}
-	for _, s := range specs {
-		if r, ok := role[s.Ref]; ok && r != s.Role {
-			return nil, fmt.Errorf("%s is used in both provides and consumes; split the schema (provided and consumed extraction can differ)", s.Ref)
-		}
-		role[s.Ref] = s.Role
-	}
+	// Pass the specs through verbatim (already sorted and deduped by (Ref,
+	// Role) in Run) and let the extractor own the io-semantics decision:
+	// whether provided and consumed extraction differ is language knowledge
+	// the language-blind core does not hold. A role-sensitive extractor
+	// (wirefit-ts: zod defaults differ per side) rejects a ref used on both
+	// sides itself; a role-agnostic one (wirefit-java) dedups by ref and
+	// extracts once.
 	req := extproto.Request{ProjectDir: projectDir}
-	for _, ref := range Refs(specs) {
-		req.Specs = append(req.Specs, extproto.Spec{Ref: ref, Role: role[ref]})
+	for _, s := range specs {
+		req.Specs = append(req.Specs, extproto.Spec{Ref: s.Ref, Role: s.Role})
 	}
 	resp, err := extproto.Invoke(x.Command, req)
 	if err != nil {

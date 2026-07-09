@@ -26,7 +26,7 @@ import (
 var extractorSource string
 
 // extractorVersion keys the compile cache; bump on WirefitExtract.java changes.
-const extractorVersion = "0.3.1"
+const extractorVersion = "0.3.0"
 
 type dep struct {
 	file, path, sha256 string
