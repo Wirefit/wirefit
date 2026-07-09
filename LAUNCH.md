@@ -33,7 +33,7 @@ the rest can be parallelized.
   - [ ] `go.mod` module path matches the real repo (`github.com/wirefit/wirefit` ✓)
 - [ ] `git tag -a v0.3.0 && git push --tags` → release workflow runs goreleaser (snapshot was verified locally: 6 platforms, checksums)
 - [ ] Un-draft the GitHub release, sanity-install on one machine: `go install github.com/wirefit/wirefit/cmd/wirefit@v0.3.0`
-- [ ] Action consumers: tag `action/` usage as `wirefit/wirefit/action@v0.3.0`; replace the `go install @latest` step in `action.yml` with the pinned release binary + checksum (tracked TODO in the file)
+- [ ] Action consumers: tag `actions/check/` usage as `Wirefit/wirefit/actions/check@v0.3.0`; replace the `go install @latest` step in `action.yml` with the pinned release binary + checksum (tracked TODO in the file)
 
 ## 4. Live-fire tests that need real infrastructure
 
