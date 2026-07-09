@@ -1,7 +1,7 @@
 // Package extserve implements the extractor side of the public protocol
 // (docs/extractor-protocol.md): one Request on stdin, one Response on stdout.
 // It is the shared main-loop of the official external extractor binaries
-// (wirefit-ts, wirefit-java); third parties are free to speak the protocol
+// (wirefit-ts, wirefit-java, wirefit-py); third parties are free to speak the protocol
 // directly.
 package extserve
 

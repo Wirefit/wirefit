@@ -1,13 +1,14 @@
 # wirefit Python extractor
 
 Pydantic v2 models → wirefit IR, via pydantic's own `model_json_schema` (SPEC §6: the
-ecosystem's machinery, never re-implemented). Built deliberately as an **external
-extractor speaking protocol v1** (`docs/extractor-protocol.md`) — the dogfood proof that
-community extractors need no wirefit source. Passes the conformance corpus:
+ecosystem's machinery, never re-implemented). `wirefit-py` is the official external
+extractor executable speaking protocol v1 (`docs/extractor-protocol.md`). It embeds the
+WireFit-owned Python extractor source, then runs it with the service's Python environment.
+Passes the conformance corpus:
 
 ```
 wirefit extractor-test --cases extractors/python/fixtures/cases.yaml \
-  --project extractors/python -- python3 extractors/python/wirefit_extract_py.py
+  --project extractors/python -- wirefit-py --python .venv/bin/python
 ```
 
 ## Wiring into a service
@@ -16,7 +17,7 @@ wirefit extractor-test --cases extractors/python/fixtures/cases.yaml \
 # contracts.yaml
 extractors:
   - match: ".py"
-    command: "python3 path/to/wirefit_extract_py.py"   # or install on PATH
+    command: "wirefit-py --python .venv/bin/python"
 consumes:
   - id: orders.get-order
     provider: order-service
@@ -25,6 +26,8 @@ consumes:
 
 Role mapping: consumes → `mode="validation"` (fields with defaults are optional);
 provides → `mode="serialization"` (defaults are always emitted → required).
+Python, Pydantic v2, and application imports must be available from the selected Python
+environment. The extractor does not create a venv or install dependencies.
 
 ## Type mapping
 

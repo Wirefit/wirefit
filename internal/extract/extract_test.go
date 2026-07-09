@@ -139,6 +139,17 @@ func TestMatchSuffix(t *testing.T) {
 	}
 }
 
+func TestExternalLetsExtractorHandleBothRoles(t *testing.T) {
+	_, err := External{Suffixes: []string{".ts"}, Command: []string{"printf", `{"schemaVersion":1,"schemas":{"api.ts#Order":{"type":"string"}}}`}}.
+		Extract(".", []Spec{
+			{Ref: "api.ts#Order", Role: "consumed"},
+			{Ref: "api.ts#Order", Role: "provided"},
+		})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRefs(t *testing.T) {
 	got := Refs([]Spec{
 		{Ref: "b", Role: "provided"},

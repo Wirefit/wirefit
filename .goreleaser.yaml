@@ -28,6 +28,13 @@ builds:
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags: [-s -w]
+  - id: wirefit-py
+    main: ./cmd/wirefit-py
+    binary: wirefit-py
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags: [-s -w]
 
 archives:
   - formats: [tar.gz]
