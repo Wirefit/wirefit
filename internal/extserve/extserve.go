@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 
 	"github.com/wirefit/wirefit/internal/extproto"
 )
@@ -33,6 +34,42 @@ func Serve(fn func(projectDir string, specs []extproto.Spec) (map[string]json.Ra
 	}
 	schemas, err := fn(req.ProjectDir, req.Specs)
 	return respond(schemas, err)
+}
+
+// SplitRoles partitions specs by manifest role for a role-sensitive
+// extractor and rejects a ref used on both sides; why names the serializer
+// semantics that keep one schema from serving both, e.g. "zod io semantics
+// differ per side".
+func SplitRoles(specs []extproto.Spec, why string) (provided, consumed []string, err error) {
+	roles := map[string]string{}
+	for _, s := range specs {
+		if r, ok := roles[s.Ref]; ok && r != s.Role {
+			return nil, nil, fmt.Errorf("%s is used in both provides and consumes; split the schema (%s)", s.Ref, why)
+		}
+		roles[s.Ref] = s.Role
+		if s.Role == "provided" {
+			provided = append(provided, s.Ref)
+		} else {
+			consumed = append(consumed, s.Ref)
+		}
+	}
+	return provided, consumed, nil
+}
+
+// Refs returns the distinct refs in specs, sorted: the role-agnostic
+// counterpart of SplitRoles, for extractors whose source draws no
+// input/output distinction.
+func Refs(specs []extproto.Spec) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(specs))
+	for _, s := range specs {
+		if !seen[s.Ref] {
+			seen[s.Ref] = true
+			out = append(out, s.Ref)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func respond(schemas map[string]json.RawMessage, err error) int {

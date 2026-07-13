@@ -15,8 +15,8 @@ func TestParsePythonFlag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}
-	if opts.python != ".venv/bin/python" {
-		t.Fatalf("python = %q", opts.python)
+	if opts.PythonBin != ".venv/bin/python" {
+		t.Fatalf("python = %q", opts.PythonBin)
 	}
 }
 
@@ -32,7 +32,7 @@ func TestExtractPassesRolesToPytool(t *testing.T) {
 		return map[string]json.RawMessage{"ok": json.RawMessage(`{"type":"string"}`)}, nil
 	}
 
-	_, err := extract(options{python: ".venv/bin/python"}, "/svc", []extproto.Spec{
+	_, err := extract(pytool.RunOptions{PythonBin: ".venv/bin/python"}, "/svc", []extproto.Spec{
 		{Ref: "out.py#Order", Role: "provided"},
 		{Ref: "in.py#Order", Role: "consumed"},
 	})
@@ -51,7 +51,7 @@ func TestExtractPassesRolesToPytool(t *testing.T) {
 }
 
 func TestExtractRejectsBothRoles(t *testing.T) {
-	_, err := extract(options{python: "python3"}, ".", []extproto.Spec{
+	_, err := extract(pytool.RunOptions{PythonBin: "python3"}, ".", []extproto.Spec{
 		{Ref: "api.py#Order", Role: "consumed"},
 		{Ref: "api.py#Order", Role: "provided"},
 	})

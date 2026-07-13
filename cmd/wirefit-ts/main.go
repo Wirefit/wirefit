@@ -5,7 +5,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/wirefit/wirefit/internal/extproto"
@@ -15,22 +14,15 @@ import (
 
 func main() { os.Exit(extserve.Serve(extract)) }
 
+var runTS = tstool.Run
+
 // Roles matter here: Zod `.default()` fields are required on the provider
 // (output) side but optional on the consumer (input) side (PRD 2.3), so one
 // schema cannot serve both.
 func extract(projectDir string, specs []extproto.Spec) (map[string]json.RawMessage, error) {
-	var provided, consumed []string
-	roles := map[string]string{}
-	for _, s := range specs {
-		if r, ok := roles[s.Ref]; ok && r != s.Role {
-			return nil, fmt.Errorf("%s is used in both provides and consumes; split the schema (zod io semantics differ per side)", s.Ref)
-		}
-		roles[s.Ref] = s.Role
-		if s.Role == "provided" {
-			provided = append(provided, s.Ref)
-		} else {
-			consumed = append(consumed, s.Ref)
-		}
+	provided, consumed, err := extserve.SplitRoles(specs, "zod io semantics differ per side")
+	if err != nil {
+		return nil, err
 	}
-	return tstool.Run(projectDir, provided, consumed)
+	return runTS(projectDir, provided, consumed)
 }

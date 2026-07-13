@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
-	"sort"
 
 	"github.com/wirefit/wirefit/internal/extproto"
 	"github.com/wirefit/wirefit/internal/extserve"
@@ -17,6 +16,16 @@ import (
 )
 
 func main() {
+	opts, code := parse(os.Args[1:])
+	if code != 0 {
+		os.Exit(code)
+	}
+	os.Exit(extserve.Serve(func(projectDir string, specs []extproto.Spec) (map[string]json.RawMessage, error) {
+		return extract(opts, projectDir, specs)
+	}))
+}
+
+func parse(args []string) (javatool.RunOptions, int) {
 	fs := flag.NewFlagSet("wirefit-java", flag.ContinueOnError)
 	classpath := fs.String("classpath", "", "service classpath override (skips build-tool resolution)")
 	buildTool := fs.String("build-tool", "auto", "auto|maven|gradle|none (how to resolve the service classpath)")
@@ -24,33 +33,23 @@ func main() {
 		"override for WirefitExtract+jackson classpath (default: self-bootstrapped cache)")
 	mapper := fs.String("mapper", "", "ObjectMapper provider <class-fqn>#<static-method>")
 	javaBin := fs.String("java", "java", "java binary")
-	if fs.Parse(os.Args[1:]) != nil {
-		os.Exit(2)
+	if fs.Parse(args) != nil {
+		return javatool.RunOptions{}, 2
 	}
-	opts := javatool.RunOptions{
+	return javatool.RunOptions{
 		Classpath:   *classpath,
 		BuildTool:   *buildTool,
 		ExtractorCP: *extractorCP,
 		Mapper:      *mapper,
 		JavaBin:     *javaBin,
-	}
-	// Jackson draws no input/output distinction, so roles are ignored and a
-	// ref used on both sides extracts once.
-	os.Exit(extserve.Serve(func(projectDir string, specs []extproto.Spec) (map[string]json.RawMessage, error) {
-		opts.ProjectDir = projectDir
-		return javatool.Run(opts, refs(specs))
-	}))
+	}, 0
 }
 
-func refs(specs []extproto.Spec) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(specs))
-	for _, s := range specs {
-		if !seen[s.Ref] {
-			seen[s.Ref] = true
-			out = append(out, s.Ref)
-		}
-	}
-	sort.Strings(out)
-	return out
+var runJava = javatool.Run
+
+// Jackson draws no input/output distinction, so roles are ignored and a ref
+// used on both sides extracts once.
+func extract(opts javatool.RunOptions, projectDir string, specs []extproto.Spec) (map[string]json.RawMessage, error) {
+	opts.ProjectDir = projectDir
+	return runJava(opts, extserve.Refs(specs))
 }
