@@ -12,12 +12,13 @@ implements this protocol — no wirefit source required.
 |---|---|---|
 | `wirefit-ts` | TypeScript / Zod (`.ts`, `.tsx`) | `extractors: {match: ".ts", command: "wirefit-ts"}` |
 | `wirefit-java` | Java / Jackson (bare FQNs) | `extractors: {match: "*", command: "wirefit-java ..."}` |
-| `extractors/python` | Pydantic v2 (`.py`) | `extractors: {match: ".py", command: "python3 .../wirefit_extract_py.py"}` |
+| `wirefit-py` | Pydantic v2 (`.py`) | `extractors: {match: ".py", command: "wirefit-py --python .venv/bin/python"}` |
 
-`wirefit-ts` and `wirefit-java` are Go binaries in the wirefit release archive
-(`go install github.com/wirefit/wirefit/cmd/wirefit-ts@latest`, `.../wirefit-java@latest`);
-Java classpath/build-tool/mapper config rides on the `wirefit-java` command in the manifest.
-Only Go and the schema importers (`.proto`/`.avsc`/`.graphql`) stay built into the core.
+Official extractor commands embed WireFit-owned extractor code in their own executable and
+use the target service's runtime and dependencies. Java classpath/build-tool/mapper config
+rides on the `wirefit-java` command in the manifest. Python environment selection rides on
+`wirefit-py --python`. Only Go and the schema importers (`.proto`/`.avsc`/`.graphql`)
+stay built into the core.
 
 ## Wire format
 

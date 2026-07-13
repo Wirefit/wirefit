@@ -59,16 +59,21 @@ Toolchain expectations (only for the languages you actually extract):
 | Java extraction | the `wirefit-java` extractor + JDK 17+ on PATH/JAVA_HOME (bytecode floor 17; tested through 25), Maven or Gradle project |
 | TypeScript / Zod | the `wirefit-ts` extractor + Node ≥ 22.6 + npm |
 | Go | the service's own Go toolchain (built in) |
-| Python | python3 + pydantic v2 (external extractor, see §5.5) |
+| Python | the `wirefit-py` extractor + Python 3 with pydantic v2 in the service environment |
 | importers (.proto/.avsc/.graphql) | nothing — built in |
 
-`wirefit-ts` and `wirefit-java` are external extractor executables that ship in the same
-release archive as `wirefit` (`go install github.com/wirefit/wirefit/cmd/wirefit-ts@latest`
-and `.../wirefit-java@latest`); a manifest routes DTO references to them via `extractors:`
-(below). Go and the schema importers stay built into the core. First Java/TS extraction
-self-bootstraps the per-language machinery into your user cache (`~/.cache/wirefit/`):
-pinned, SHA-256-verified Jackson jars compiled against the embedded Java extractor; a pinned
-`typescript` npm install for the TS extractor.
+`wirefit` is the self-contained core CLI. Go and the schema importers stay built in.
+Official non-core language support is delivered as plug-and-play extractor commands:
+`wirefit-java`, `wirefit-ts`, and `wirefit-py`. Each command embeds the WireFit-owned
+extractor code for that language and speaks the same public protocol as third-party
+extractors. The language runtime and service dependencies still come from the service
+environment: JDK/classpath for Java, Node/modules for TypeScript, and Python/Pydantic/imports
+for Python.
+
+First Java/TS/Python extraction may materialize embedded extractor code into your user cache
+(`~/.cache/wirefit/`). Java also downloads pinned, SHA-256-verified Jackson jars for the
+extractor side; TypeScript installs a pinned `typescript` package. Python does not create a
+venv or install Pydantic, because it must run in the same environment as the service DTOs.
 
 Trust boundary: run `wirefit extract` only against repositories you trust. Extraction may
 execute the target project or its tooling: `wirefit-java` classpath resolution can run
@@ -119,7 +124,7 @@ extractors:                   # external extractors (protocol v1). Route DTO ref
   - match: "*"                # at most one "*" fallback; consulted after built-ins.
     command: "wirefit-java --build-tool maven"   # java config rides on the command
   # - match: ".py"
-  #   command: "python3 tools/wirefit_extract_py.py"
+  #   command: "wirefit-py --python .venv/bin/python"
 
 settings:                     # all optional
   unknown-fields: ignore      # reject if your deserializer is strict (flips rules, §7)
@@ -137,7 +142,7 @@ fallback matches after it (so `./pkg#Type` still reaches Go).
 | `src/views.ts#OrderView` | `wirefit-ts` (compiler API) | `extractors: {match: ".ts"}` |
 | `src/schemas.ts#OrderSchema` | `wirefit-ts` Zod (runtime, if the export is a Zod schema) | `extractors: {match: ".ts"}` |
 | `./internal/api#OrderResponse` | Go (reflection, generated in-module) | built in |
-| `src/models.py#OrderView` | e.g. Python | `extractors: {match: ".py"}` |
+| `src/models.py#OrderView` | `wirefit-py` (Pydantic v2) | `extractors: {match: ".py"}` |
 | `schemas/order.proto#Order` | proto importer | built in |
 | `schemas/order-created.avsc` (`#Name` optional) | Avro importer | built in |
 | `schema.graphql#Order` | GraphQL SDL importer | built in |
@@ -185,6 +190,9 @@ PR → `check` + sticky markdown comment. Push to main → `check` + `publish`.
 GitHub via `Wirefit/wirefit/actions/pages@v0` (needs `pages: write` + `id-token: write`,
 see `actions/pages/action.yml`); GitLab via the `pages` job that the include above already
 provides (runs on the default branch, serves `wirefit matrix -o public/index.html`).
+
+The full GitHub recipe, including the two repo settings that are not carried by the
+workflow files (Pages enablement, the token secret), is in `CONTRACTS-REPO-SETUP.md`.
 
 **Deploy pipelines** add two lines:
 
@@ -240,10 +248,16 @@ Reflection via a program generated *inside your module* (`.wirefit/gen/`, transi
 limitation — use importers for schema-native payloads). `uint`/`uint64` and
 `json.RawMessage` fail loudly.
 
-### 5.5 Python (`extractors/python/README.md`)
-External extractor speaking protocol v1 — wire it via `extractors:` in the manifest.
-Pydantic v2 models and discriminated-union type aliases. `int → int64`,
-`X | None → nullable`, defaults → optional on the consumer side.
+### 5.5 Python (`wirefit-py`, `extractors/python/README.md`)
+Routed via `extractors: {match: ".py", command: "wirefit-py ..."}`. The extractor uses
+Pydantic v2's own `model_json_schema` output. Run it with the service Python environment so
+application imports, plugins, aliases, and Pydantic behavior match production:
+`command: "wirefit-py --python .venv/bin/python"`.
+
+Pydantic v2 models and discriminated-union type aliases are supported. `int → int64`,
+`X | None → nullable`, defaults → optional on the consumer side and required on the provider
+side. Because those semantics differ per side, the same `.py` ref used in both `provides`
+and `consumes` is rejected. Split it into two references.
 
 ### 5.6 Schema-native payloads (proto / Avro / GraphQL)
 Where a schema artifact exists, it IS the source — wirefit imports it directly:
@@ -398,4 +412,4 @@ only — that's the part DTOs can prove.
 
 **How do I write an extractor for language X?** Implement protocol v1 — an executable
 reading JSON on stdin, writing IR on stdout (`docs/extractor-protocol.md`), then prove it
-with `wirefit extractor-test`. The Python extractor (~200 lines) is the template.
+with `wirefit extractor-test`. The official extractors use the same protocol surface.

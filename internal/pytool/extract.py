@@ -1,44 +1,32 @@
 #!/usr/bin/env python3
-"""wirefit Python extractor (Phase 5, PRD 5.6).
+"""wirefit Python extractor.
 
-Implements the public extractor protocol v1 (docs/extractor-protocol.md):
-Request JSON on stdin, Response JSON on stdout. Built deliberately as an
-EXTERNAL extractor — no wirefit source required — to dogfood the protocol.
+Pydantic v2 models and union type aliases are converted with pydantic's own
+model_json_schema machinery, then normalized to wirefit IR.
 
-Pydantic v2 models (and union type aliases via TypeAdapter) are converted
-with pydantic's own machinery (model_json_schema), then normalized to
-wirefit IR.
+usage: python extract.py --project <dir> (in=|out=)<relative/file.py#Name>...
+  in=  : consumer side, pydantic mode="validation"
+  out= : provider side, pydantic mode="serialization"
 
-Spec format: "path/to/module.py#ModelName"
-Role: consumed → mode="validation" (defaults make fields optional)
-      provided → mode="serialization" (defaults are always emitted → required)
-
-Mapping notes:
-  int → int64 (Python ints are arbitrary-precision; int64 is the honest
-  ceiling for interop — values beyond it should be str/Decimal anyway)
-  float → float64 · str → string · bool → bool · UUID → uuid
-  datetime → datetime · date → date · timedelta → duration · Decimal → decimal
-  X | None → nullable (distinct from optional-by-default, SPEC §7)
-  Literal[...] / str-Enums → enum · dict[str, T] → open object carrying T
-  Field(discriminator=...) unions → oneOf + lifted discriminator
-Hard errors: Any/object fields, non-string-keyed dicts, tuples, bytes-as-base64
-ambiguity is accepted (bytes → bytes), non-string enums.
+output: one JSON object on stdout keyed by the bare spec.
+exit codes: 0 ok, 2 unsupported shape / resolution failure
 """
 import importlib.util
 import json
-import sys
 import os
-
-PROTOCOL_VERSION = 1
+import sys
 
 FORMAT_SCALARS = {
-    "uuid": "uuid", "date-time": "datetime", "date": "date", "duration": "duration",
+    "uuid": "uuid",
+    "date-time": "datetime",
+    "date": "date",
+    "duration": "duration",
 }
 
 
 def die(msg):
-    json.dump({"schemaVersion": PROTOCOL_VERSION, "schemas": {}, "error": msg}, sys.stdout)
-    sys.exit(0)  # protocol: error in body
+    print("wirefit-extract-py: " + msg, file=sys.stderr)
+    sys.exit(2)
 
 
 def load_target(project_dir, spec):
@@ -48,13 +36,13 @@ def load_target(project_dir, spec):
     path = os.path.join(project_dir, file)
     modname = "wirefit_target_" + file.replace("/", "_").replace(".", "_")
     s = importlib.util.spec_from_file_location(modname, path)
-    if s is None:
+    if s is None or s.loader is None:
         die(f"cannot load {path}")
     mod = importlib.util.module_from_spec(s)
     sys.modules[modname] = mod
     try:
         s.loader.exec_module(mod)
-    except Exception as e:  # noqa: BLE001 — report, don't guess
+    except Exception as e:
         die(f"importing {file} failed: {e}")
     if not hasattr(mod, name):
         die(f"{name} not found in {file}")
@@ -62,7 +50,7 @@ def load_target(project_dir, spec):
 
 
 def json_schema_for(target, role):
-    mode = "serialization" if role == "provided" else "validation"
+    mode = "serialization" if role == "out" else "validation"
     if hasattr(target, "model_json_schema"):
         return target.model_json_schema(mode=mode)
     from pydantic import TypeAdapter
@@ -70,8 +58,14 @@ def json_schema_for(target, role):
 
 
 def scalar(s):
-    jt = {"bool": "boolean", "int32": "integer", "int64": "integer",
-          "float32": "number", "float64": "number", "decimal": "number"}.get(s, "string")
+    jt = {
+        "bool": "boolean",
+        "int32": "integer",
+        "int64": "integer",
+        "float32": "number",
+        "float64": "number",
+        "decimal": "number",
+    }.get(s, "string")
     return {"type": jt, "x-ct-scalar": s}
 
 
@@ -134,7 +128,6 @@ def core_to_ir(node, defs, ctx, ref_stack):
     if t == "integer":
         return scalar("int64")
     if t == "number":
-        # pydantic Decimal emits anyOf[number,string]; plain number is float64
         return scalar("float64")
     if t == "boolean":
         return scalar("bool")
@@ -147,7 +140,6 @@ def core_to_ir(node, defs, ctx, ref_stack):
         ap = node.get("additionalProperties")
         open_values = ap not in (None, False)
         if open_values and not props:
-            # Dict[str, V] carries V's schema; a bare True dict stays unexpressed.
             value = True if ap is True else to_ir(ap, defs, ctx + "{}", ref_stack)
             return {"type": "object", "additionalProperties": value}
         if open_values:
@@ -173,7 +165,6 @@ def union_to_ir(node, variants, defs, ctx, ref_stack):
 
     disc = (node.get("discriminator") or {}).get("propertyName")
     if not disc:
-        # fall back: shared single-value enum property
         for name in sorted(resolved[0]["properties"]):
             vals = [r["properties"].get(name, {}).get("enum") for r in resolved]
             if all(v and len(v) == 1 for v in vals) and len({v[0] for v in vals}) == len(resolved):
@@ -196,18 +187,41 @@ def union_to_ir(node, variants, defs, ctx, ref_stack):
     return {"x-ct-discriminator": disc, "oneOf": branches}
 
 
+def parse_args(argv):
+    project_dir = "."
+    specs = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--project":
+            i += 1
+            if i >= len(argv):
+                die("--project requires a directory")
+            project_dir = argv[i]
+        else:
+            role = "in"
+            spec = argv[i]
+            if spec.startswith("in="):
+                spec = spec[3:]
+            elif spec.startswith("out="):
+                role = "out"
+                spec = spec[4:]
+            specs.append((spec, role))
+        i += 1
+    if not specs:
+        die("usage: extract.py --project <dir> (in=|out=)<file.py#ModelName>...")
+    return project_dir, specs
+
+
 def main():
-    req = json.load(sys.stdin)
-    if req.get("schemaVersion") != PROTOCOL_VERSION:
-        die(f"unsupported protocol version {req.get('schemaVersion')}")
-    project_dir = req.get("projectDir", ".")
+    project_dir, specs = parse_args(sys.argv[1:])
     sys.path.insert(0, project_dir)
     schemas = {}
-    for spec in req.get("specs", []):
-        target = load_target(project_dir, spec["ref"])
-        js = json_schema_for(target, spec.get("role", "consumed"))
-        schemas[spec["ref"]] = to_ir(js, js.get("$defs", {}), spec["ref"], [])
-    json.dump({"schemaVersion": PROTOCOL_VERSION, "schemas": schemas}, sys.stdout, indent=1)
+    for spec, role in specs:
+        target = load_target(project_dir, spec)
+        js = json_schema_for(target, role)
+        schemas[spec] = to_ir(js, js.get("$defs", {}), spec, [])
+    json.dump(schemas, sys.stdout, indent=1, sort_keys=True)
+    sys.stdout.write("\n")
 
 
 if __name__ == "__main__":

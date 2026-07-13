@@ -39,7 +39,7 @@ jobs:
         run: |
           pip install pydantic --quiet
           go run ./cmd/wirefit extractor-test --cases extractors/python/fixtures/cases.yaml \
-            --project extractors/python -- python3 extractors/python/wirefit_extract_py.py
+            --project extractors/python -- go run ./cmd/wirefit-py
 
   # Build-system integration fixtures. The end-to-end consumer/provider demos
   # moved to github.com/wirefit/examples, which runs them against released wirefit.

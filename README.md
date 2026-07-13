@@ -59,7 +59,8 @@ conformance/        cross-language corpus: Java + TS + Go fixtures must produce 
 internal/gotool/    Go extractor (generated reflection program inside the service module)
 internal/extproto/  public extractor protocol v1 (docs/extractor-protocol.md)
 internal/importer/  schema-native importers: .proto, .avsc, GraphQL SDL + operations
-extractors/python/  pydantic v2 extractor (external, protocol v1) + corpus fixtures
+cmd/wirefit-py/ official Python extractor command (Pydantic v2 over protocol v1)
+extractors/python/  Python corpus fixtures
 internal/override/  rule overrides: (interaction,path,rule) downgrades with justification + expiry
 ci/gitlab/          GitLab CI component (sticky MR note, beta)
 extractors/java/    Java extractor fixtures, mapping docs, round-trip test
