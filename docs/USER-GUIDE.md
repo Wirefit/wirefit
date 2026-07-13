@@ -191,6 +191,9 @@ GitHub via `Wirefit/wirefit/actions/pages@v0` (needs `pages: write` + `id-token:
 see `actions/pages/action.yml`); GitLab via the `pages` job that the include above already
 provides (runs on the default branch, serves `wirefit matrix -o public/index.html`).
 
+The full GitHub recipe, including the two repo settings that are not carried by the
+workflow files (Pages enablement, the token secret), is in `CONTRACTS-REPO-SETUP.md`.
+
 **Deploy pipelines** add two lines:
 
 ```bash
