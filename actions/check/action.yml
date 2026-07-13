@@ -56,6 +56,8 @@ runs:
         go install github.com/wirefit/wirefit/cmd/wirefit@${{ inputs.version }}
         go install github.com/wirefit/wirefit/cmd/wirefit-ts@${{ inputs.version }}
         go install github.com/wirefit/wirefit/cmd/wirefit-java@${{ inputs.version }}
+        # hosted runners do not put GOPATH/bin on PATH
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
     - name: Extract candidate IR
       shell: bash
