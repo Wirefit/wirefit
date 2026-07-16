@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/wirefit/wirefit/internal/diff"
+	"github.com/wirefit/wirefit/internal/ir"
 	"github.com/wirefit/wirefit/internal/store"
 )
 
@@ -230,6 +231,9 @@ type matrixEdge struct {
 	// the one-line summary so term/md output is unchanged.
 	Findings                       []diff.Finding `json:",omitempty"`
 	ConsumerRecord, ProviderRecord *deployRecord  `json:",omitempty"`
+	// ConsumerBody/ProviderBody feed the HTML modal's side-by-side view; kept
+	// out of the --format json contract (the blobs are available via the store).
+	ConsumerBody, ProviderBody *ir.Schema `json:"-"`
 }
 
 // deployRecord is one side's deploy-record provenance, surfaced by the HTML
@@ -265,6 +269,30 @@ func newDeployRecord(sl *store.ServiceLock, hash string, ver int) *deployRecord 
 		Hash:       shortHash(hash),
 		Version:    ver,
 	}
+}
+
+type deployRecordResolver struct {
+	st   *store.Store
+	logs map[string]store.VersionLog
+}
+
+func newDeployRecordResolver(st *store.Store) *deployRecordResolver {
+	return &deployRecordResolver{st: st, logs: map[string]store.VersionLog{}}
+}
+
+func (r *deployRecordResolver) resolve(service string, sl *store.ServiceLock, ref, hash string) (*deployRecord, error) {
+	if sl == nil || hash == "" {
+		return nil, nil
+	}
+	v, ok := r.logs[service]
+	if !ok {
+		var err error
+		if v, err = r.st.LoadVersions(service); err != nil {
+			return nil, err
+		}
+		r.logs[service] = v
+	}
+	return newDeployRecord(sl, hash, v.Resolve(ref, hash)), nil
 }
 
 type matrixStatus string
@@ -384,18 +412,7 @@ func cmdMatrix(args []string) int {
 }
 
 func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
-	vlogs := map[string]store.VersionLog{}
-	versions := func(service string) (store.VersionLog, error) {
-		v, ok := vlogs[service]
-		if !ok {
-			var err error
-			if v, err = st.LoadVersions(service); err != nil {
-				return nil, err
-			}
-			vlogs[service] = v
-		}
-		return v, nil
-	}
+	records := newDeployRecordResolver(st)
 	var edges []matrixEdge
 	for _, env := range st.Envs() {
 		lock, err := st.LoadEnvLock(env)
@@ -403,14 +420,14 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 			return nil, err
 		}
 		for consumer, sl := range lock {
-			cvlog, err := versions(consumer)
-			if err != nil {
-				return nil, err
-			}
 			for key, chash := range sl.Consumes {
 				provider, id, _ := cutString(key, "/")
+				consumerRecord, err := records.resolve(consumer, sl, "consumes/"+key, chash)
+				if err != nil {
+					return nil, err
+				}
 				e := matrixEdge{Env: env, Consumer: consumer, Provider: provider, Interaction: id,
-					ConsumerRecord: newDeployRecord(sl, chash, cvlog.Resolve("consumes/"+key, chash))}
+					ConsumerRecord: consumerRecord}
 				psl, ok := lock[provider]
 				var phash string
 				if ok {
@@ -428,11 +445,11 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 					edges = append(edges, e)
 					continue
 				}
-				pvlog, err := versions(provider)
+				e.ConsumerBody, e.ProviderBody = proj, prov
+				e.ProviderRecord, err = records.resolve(provider, psl, "provides/"+id, phash)
 				if err != nil {
 					return nil, err
 				}
-				e.ProviderRecord = newDeployRecord(psl, phash, pvlog.Resolve("provides/"+id, phash))
 				dir := diff.P2C
 				if d, ok := dirOf(st, provider, id); ok {
 					dir = d

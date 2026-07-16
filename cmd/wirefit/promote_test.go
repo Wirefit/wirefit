@@ -359,6 +359,8 @@ func TestPromoEdges(t *testing.T) {
 
 	if e := find("dev", "order-service", "web-app"); e.Status != matrixStatusIncompatible {
 		t.Errorf("breaking promotion: status = %s, want INCOMPATIBLE (%+v)", e.Status, e)
+	} else if e.ConsumerBody == nil || e.ProviderBody == nil || e.ConsumerRecord == nil || e.ProviderRecord == nil {
+		t.Errorf("tracked provider check missing modal bodies or provenance: %+v", e)
 	}
 	if e := find("dev", "web-app", ""); e.Status != matrixStatusOK || !e.InSync || e.Detail == "" {
 		t.Errorf("in-sync service: %+v, want an ok row with detail", e)
@@ -372,6 +374,8 @@ func TestPromoEdges(t *testing.T) {
 	// web-app@staging is NOT in sync with empty prod: it gets real checks.
 	if e := find("staging", "web-app", "order-service"); e.Status != matrixStatusUntracked {
 		t.Errorf("consumer into empty env: status = %s, want untracked (%+v)", e.Status, e)
+	} else if e.ConsumerBody == nil || e.ProviderBody == nil || e.ConsumerRecord == nil || e.ProviderRecord != nil {
+		t.Errorf("untracked consumer check has wrong modal bodies or provenance: %+v", e)
 	}
 
 	// Pairs stay in pipeline order; rows sort by service within a pair.

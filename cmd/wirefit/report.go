@@ -5,12 +5,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"sort"
 	"strings"
 
 	"github.com/wirefit/wirefit/internal/diff"
+	"github.com/wirefit/wirefit/internal/ir"
 )
 
 const maxReportBytes = 65000 // GitHub comment limit, with headroom (PRD 1.10)
@@ -112,8 +114,9 @@ func renderMatrixMD(edges []matrixEdge, promos []promoEdge) []byte {
 // inline script, no external resources, no timestamps (a page regenerated from
 // the same repo state must not churn). The script carries no template actions,
 // so html/template never escapes data into a JS context; all behavior reads
-// DOM attributes. Without JS the noscript style shows every detail row.
-// Light/dark follows the viewer's system preference via the CSS variables.
+// DOM attributes. Without JS the noscript style renders every detail modal
+// inline. Light/dark follows the viewer's system preference via the CSS
+// variables.
 var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
 	"fclass": findingStatus,
 	"sthelp": func(s matrixStatus) string { return matrixStatusHelp[s] },
@@ -143,12 +146,19 @@ var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
     }
   }
   * { box-sizing: border-box; }
+  html { scrollbar-gutter: stable; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body.modal-open { overflow: hidden; }
   main { max-width: 64rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
   h1 { font-size: 1.3rem; margin: 0; }
   .sub { color: var(--muted); font-size: .88rem; margin: .2rem 0 1rem; }
   .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem; }
+  .group-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: -.55rem 0 1.25rem; }
+  .group-actions button { border: 1px solid var(--border); border-radius: 6px;
+                          background: var(--card); color: var(--text); padding: .35rem .65rem;
+                          font: inherit; font-size: .78rem; cursor: pointer; }
+  .group-actions button:hover { background: var(--bg); }
   .chip, .badge { display: inline-flex; align-items: center; gap: .45rem;
                   border-radius: 999px; padding: .18rem .7rem;
                   font-size: .78rem; font-weight: 500; white-space: nowrap;
@@ -160,12 +170,13 @@ var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
   .st-INCOMPATIBLE, .st-error { background: var(--bad-bg); color: var(--bad-fg); }
   .st-untracked { background: var(--dim-bg); color: var(--dim-fg); }
   .card { background: var(--card); border: 1px solid var(--border);
-          border-radius: 10px; overflow-x: auto;
+          border-radius: 10px; max-height: min(65vh, 44rem); overflow: auto;
           box-shadow: 0 1px 3px rgba(31, 35, 40, .06); }
   table { border-collapse: collapse; width: 100%; min-width: 46rem; }
   th { text-align: left; font-size: .72rem; text-transform: uppercase;
        letter-spacing: .06em; color: var(--muted); font-weight: 600;
-       padding: .7rem .95rem; border-bottom: 1px solid var(--border); }
+       padding: .7rem .95rem; border-bottom: 1px solid var(--border);
+       position: sticky; top: 0; z-index: 1; background: var(--card); }
   td { padding: .62rem .95rem; border-bottom: 1px solid var(--border);
        vertical-align: top; font-size: .9rem; }
   tbody tr:last-child td { border-bottom: none; }
@@ -191,16 +202,62 @@ var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
   .pa-warning { color: var(--warn-fg); }
   .pa-INCOMPATIBLE, .pa-error { color: var(--bad-fg); }
   .pa-untracked { color: var(--dim-fg); }
-  tr[data-exp] { cursor: pointer; }
-  tr[data-exp] > td:first-child::before { content: "▸ "; color: var(--muted); }
-  tr[data-exp].open > td:first-child::before { content: "▾ "; }
-  tr.exp > td { background: var(--bg); font-size: .85rem; }
+  tr[data-modal] { cursor: pointer; }
   table.findings { min-width: 0; width: 100%; }
-  .findings td { border-bottom: none; padding: .2rem .7rem .2rem 0; font-size: .85rem; }
-  .prov { color: var(--muted); font-size: .8rem; margin: .4rem 0 0; }
+  .findings td { border-bottom: none; padding: .35rem .7rem .35rem 0; font-size: .85rem; }
+  .parties { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem;
+             margin: 0; padding: .8rem 1.25rem; border-bottom: 1px solid var(--border); }
+  .parties div { min-width: 0; }
+  .parties dt { color: var(--muted); font-size: .68rem; font-weight: 600;
+                letter-spacing: .06em; text-transform: uppercase; }
+  .parties dd { margin: .15rem 0 0; overflow-wrap: anywhere; }
+  .party-version { display: block; color: var(--muted); font-size: .75rem; margin-top: .15rem; }
+  .msection, .provenance { padding: .8rem 1.25rem; border-bottom: 1px solid var(--border); }
+  .msection h4 { margin: 0 0 .35rem; color: var(--muted); font-size: .68rem;
+                 font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .prov { color: var(--muted); font-size: .8rem; margin: .25rem 0 0; }
+  .prov:first-child { margin-top: 0; }
+  dialog { background: var(--card); color: var(--text); border: 1px solid var(--border);
+           border-radius: 8px; padding: 0; box-shadow: 0 18px 50px rgba(31, 35, 40, .28);
+           width: min(76rem, calc(100vw - 2rem)); max-height: 88vh; overflow: auto;
+           overscroll-behavior: contain; }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  .dhead { position: sticky; top: 0; z-index: 2; display: flex; align-items: center;
+           justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem .85rem;
+           background: var(--card); border-bottom: 1px solid var(--border); }
+  .dhead h3 { margin: 0; font-size: 1rem; font-weight: 650; overflow-wrap: anywhere; }
+  .dhead form { margin: 0; }
+  .dhead button { width: 2rem; height: 2rem; border: 1px solid transparent; border-radius: 6px;
+                  background: transparent; color: var(--muted); font: inherit;
+                  font-size: 1.05rem; cursor: pointer; }
+  .dhead button:hover { border-color: var(--border); background: var(--bg); color: var(--text); }
+  .dsub { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem;
+          color: var(--muted); font-size: .85rem; margin: 0; padding: .75rem 1.25rem;
+          background: var(--bg); border-bottom: 1px solid var(--border); }
+  .bodies { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 1rem; padding: 1rem 1.25rem 1.25rem; }
+  @media (max-width: 54rem) {
+    .parties, .bodies { grid-template-columns: 1fr; }
+  }
+  .bodies > div { min-width: 0; overflow: hidden; border: 1px solid var(--border);
+                  border-radius: 8px; background: var(--bg); }
+  .bodies h4 { margin: 0; padding: .65rem .85rem; background: var(--card);
+               border-bottom: 1px solid var(--border); font-size: .72rem; text-transform: uppercase;
+               letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .bodies pre { margin: 0; overflow: auto; max-height: 57vh; background: transparent;
+                border: 0; border-radius: 0; padding: .85rem 1rem;
+                font: .78rem/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .body-empty { color: var(--muted); font-size: .8rem; margin: 0; padding: .85rem 1rem; }
+  .hl { display: inline-block; min-width: 100%; border-radius: 4px; padding: 0 .35rem; margin-left: -.35rem; }
   .ver code { color: var(--muted); }
   section { margin-bottom: 1.9rem; }
   h2 { font-size: .95rem; margin: 0 0 .55rem; }
+  .group > details > summary { cursor: pointer; padding: .55rem .75rem;
+                               background: var(--card); border: 1px solid var(--border);
+                               border-radius: 10px; box-shadow: 0 1px 3px rgba(31, 35, 40, .06);
+                               user-select: none; }
+  .group > details[open] > summary { margin-bottom: .55rem; }
+  .group > details > summary h2 { display: inline; margin: 0; }
   .gsum { color: var(--muted); font-weight: 400; font-size: .8rem; margin-left: .6rem; }
   .detail { color: var(--muted); font-size: .85rem; }
   .empty { color: var(--muted); text-align: center; padding: 2.2rem 1rem; margin: 0; }
@@ -225,45 +282,86 @@ var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
 <p class="sub">{{.EnvLabel}} · {{.EdgeLabel}}{{if .PromoLabel}} · {{.PromoLabel}}{{end}}</p>
 {{if .Pipeline}}<nav class="pipeline">{{range .Pipeline}}{{if .Anchor}}<a class="pnode" href="#{{.Anchor}}"><span class="badge st-{{.Status}}">{{.Env}}</span><span class="psum">{{.Summary}}</span></a>{{else}}<span class="pnode"><span class="badge st-{{.Status}}">{{.Env}}</span><span class="psum">{{.Summary}}</span></span>{{end}}{{with .Arrow}} <span class="parrow pa-{{.Status}}" title="{{.Title}}">→</span> {{end}}{{end}}<span class="hint">badges = health per env · arrows = readiness or in-sync target health</span></nav>
 {{end}}{{if .Verdict}}<p class="verdict {{.VerdictTone}}">{{.Verdict}}</p>
-{{end}}{{if .Counts}}<div class="chips">{{range .Counts}}<label class="chip st-{{.Status}}" for="f-{{.Status}}" title="{{sthelp .Status}}">{{.N}} {{.Status}}</label>{{end}}<span class="hint">click a chip to hide or show that status · click a row for findings and deployed versions</span></div>
-{{end}}{{range .Groups}}<section id="{{.ID}}">
-<h2>{{.Env}}<span class="gsum">{{.Summary}}</span></h2>
+{{end}}{{if .Counts}}<div class="chips">{{range .Counts}}<label class="chip st-{{.Status}}" for="f-{{.Status}}" title="{{sthelp .Status}}">{{.N}} {{.Status}}</label>{{end}}<span class="hint">click a chip to hide or show that status · click a row for its detail view</span></div>
+{{end}}{{if or .Groups .PromoGroups}}<div class="group-actions"><button type="button" data-groups="expand">Expand all</button><button type="button" data-groups="collapse">Collapse all</button><button type="button" data-groups="collapse-healthy">Collapse healthy</button></div>
+{{end}}{{range .Groups}}<section class="group" id="{{.ID}}" data-healthy="{{if .Open}}false{{else}}true{{end}}">
+<details{{if .Open}} open{{end}}><summary><h2>{{.Env}}<span class="gsum">{{.Summary}}</span></h2></summary>
 <div class="card">
 <table>
 <thead><tr><th>consumer</th><th>version</th><th>provider / interaction</th><th>version</th><th>status</th><th>detail</th></tr></thead>
 <tbody>
-{{range .Rows}}<tr class="row-{{.Status}}"{{if .Expand}} data-exp{{end}}><td>{{.Consumer}}</td><td class="ver">{{with .ConsumerRecord}}<code title="{{.Hash}} · recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Label}}</code>{{end}}</td><td><code>{{.Provider}}/{{.Interaction}}</code></td><td class="ver">{{with .ProviderRecord}}<code title="{{.Hash}} · recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Label}}</code>{{end}}</td><td><span class="badge st-{{.Status}}" title="{{sthelp .Status}}">{{.Status}}</span></td><td class="detail">{{.Detail}}</td></tr>
-{{if .Expand}}<tr class="exp row-{{.Status}}" hidden><td colspan="6">{{if .Findings}}<table class="findings"><tbody>{{range .Findings}}<tr><td><span class="badge st-{{fclass .Class}}">{{.Class}}</span></td><td><code>{{.Rule}}</code></td><td><code>{{.Path}}</code></td><td>{{.Message}}</td></tr>{{end}}</tbody></table>{{end}}{{with .ConsumerRecord}}<p class="prov">consumer version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>{{end}}{{with .ProviderRecord}}<p class="prov">provider version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>{{end}}</td></tr>
-{{end}}{{end}}</tbody>
+{{range .Rows}}<tr class="row-{{.Status}}"{{with .Modal}} data-modal="{{.ID}}"{{end}}><td>{{.Consumer}}</td><td class="ver">{{with .ConsumerRecord}}<code title="{{.Hash}} · recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Label}}</code>{{end}}</td><td><code>{{.Provider}}/{{.Interaction}}</code></td><td class="ver">{{with .ProviderRecord}}<code title="{{.Hash}} · recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Label}}</code>{{end}}</td><td><span class="badge st-{{.Status}}" title="{{sthelp .Status}}">{{.Status}}</span></td><td class="detail">{{.Detail}}</td></tr>
+{{end}}</tbody>
 </table>
 </div>
-</section>
+{{range .Rows}}{{with .Modal}}{{template "matrix-modal" .}}{{end}}{{end}}</details></section>
 {{else}}<div class="card"><p class="empty">no deploy records; run <code>wirefit record-deploy</code> in each service first</p></div>
-{{end}}{{range .PromoGroups}}<section>
-<h2>promotion {{.Pair}}<span class="gsum">{{.Summary}}</span></h2>
+{{end}}{{range .PromoGroups}}<section class="group" id="{{.ID}}" data-healthy="{{if .Open}}false{{else}}true{{end}}">
+<details{{if .Open}} open{{end}}><summary><h2>promotion {{.Pair}}<span class="gsum">{{.Summary}}</span></h2></summary>
 <div class="card">
 <table>
 <thead><tr><th>service</th><th>check</th><th>status</th><th>detail</th></tr></thead>
 <tbody>
-{{range .Rows}}<tr class="row-{{.Status}}"{{if .Findings}} data-exp{{end}}><td>{{.Service}}</td><td>{{if .Check}}<code>{{.Check}}</code>{{end}}</td><td><span class="badge st-{{.Status}}" title="{{sthelp .Status}}">{{.Status}}</span></td><td class="detail">{{.Detail}}</td></tr>
-{{if .Findings}}<tr class="exp row-{{.Status}}" hidden><td colspan="4"><table class="findings"><tbody>{{range .Findings}}<tr><td><span class="badge st-{{fclass .Class}}">{{.Class}}</span></td><td><code>{{.Rule}}</code></td><td><code>{{.Path}}</code></td><td>{{.Message}}</td></tr>{{end}}</tbody></table></td></tr>
-{{end}}{{end}}</tbody>
+{{range .Rows}}<tr class="row-{{.Status}}"{{with .Modal}} data-modal="{{.ID}}"{{end}}><td>{{.Service}}</td><td>{{if .Check}}<code>{{.Check}}</code>{{end}}</td><td><span class="badge st-{{.Status}}" title="{{sthelp .Status}}">{{.Status}}</span></td><td class="detail">{{.Detail}}</td></tr>
+{{end}}</tbody>
 </table>
 </div>
-</section>
+{{range .Rows}}{{with .Modal}}{{template "matrix-modal" .}}{{end}}{{end}}</details></section>
 {{end}}<footer>generated by <code>wirefit matrix</code></footer>
 <script>
 document.addEventListener("click", function (ev) {
-  var row = ev.target.closest("tr[data-exp]");
+  var action = ev.target.closest("button[data-groups]");
+  if (action) {
+    var mode = action.getAttribute("data-groups");
+    var selector = mode === "collapse-healthy"
+      ? '.group[data-healthy="true"] > details'
+      : ".group > details";
+    document.querySelectorAll(selector).forEach(function (group) { group.open = mode === "expand"; });
+    return;
+  }
+  var anchor = ev.target.closest('a[href^="#"]');
+  if (anchor) {
+    var target = document.getElementById(anchor.getAttribute("href").slice(1));
+    if (target && target.matches(".group")) target.querySelector("details").open = true;
+  }
+  var dlg = ev.target.closest("dialog");
+  if (dlg) {
+    if (ev.target === dlg) {
+      var box = dlg.getBoundingClientRect();
+      if (ev.clientX < box.left || ev.clientX > box.right ||
+          ev.clientY < box.top || ev.clientY > box.bottom) dlg.close();
+    }
+    return;
+  }
+  var row = ev.target.closest("tr[data-modal]");
   if (!row || ev.target.closest("a")) return;
-  row.classList.toggle("open");
-  row.nextElementSibling.hidden = !row.nextElementSibling.hidden;
+  document.getElementById(row.getAttribute("data-modal")).showModal();
+  document.body.classList.add("modal-open");
 });
+document.addEventListener("close", function (ev) {
+  if (ev.target.matches("dialog") && !document.querySelector("dialog[open]")) {
+    document.body.classList.remove("modal-open");
+  }
+}, true);
 </script>
-<noscript><style>tr.exp { display: table-row; }</style></noscript>
+<noscript><style>dialog { display: block; position: static; margin: .8rem 0; max-height: none; width: auto; }</style></noscript>
 </main>
 </body>
 </html>
+{{define "matrix-modal"}}<dialog id="{{.ID}}" aria-labelledby="{{.ID}}-title">
+<div class="dhead"><h3 id="{{.ID}}-title">{{.Title}}</h3><form method="dialog"><button aria-label="close" autofocus>✕</button></form></div>
+<p class="dsub">{{.Scope}}{{with .Check}} · <code>{{.}}</code>{{end}} · <span class="badge st-{{.Status}}" title="{{sthelp .Status}}">{{.Status}}</span>{{with .Detail}}<span>{{.}}</span>{{end}}</p>
+<dl class="parties"><div><dt>consumer</dt><dd><code>{{.Consumer}}</code><span class="party-version">version {{with .ConsumerRecord}}<code>{{.Label}}</code>{{else}}unavailable{{end}}</span></dd></div><div><dt>provider</dt><dd><code>{{.Provider}}</code><span class="party-version">version {{with .ProviderRecord}}<code>{{.Label}}</code>{{else}}unavailable{{end}}</span></dd></div><div><dt>interaction</dt><dd><code>{{.Interaction}}</code></dd></div></dl>
+{{if .Findings}}<div class="msection"><h4>findings</h4><table class="findings"><tbody>{{range .Findings}}<tr><td><span class="badge st-{{fclass .Class}}">{{.Class}}</span></td><td><code>{{.Rule}}</code></td><td><code>{{.Path}}</code></td><td>{{.Message}}</td></tr>{{end}}</tbody></table></div>
+{{end}}{{if or .ConsumerRecord .ProviderRecord}}<div class="provenance">{{with .ConsumerRecord}}<p class="prov">consumer version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>
+{{end}}{{with .ProviderRecord}}<p class="prov">provider version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>{{end}}</div>
+{{end}}{{if or .ConsumerLines .ProviderLines}}<div class="bodies">
+<div><h4>{{.ConsumerBodyLabel}}</h4>{{if .ConsumerLines}}<pre>{{range .ConsumerLines}}{{if .Class}}<span class="hl st-{{.Class}}">{{.Text}}</span>{{else}}{{.Text}}{{end}}
+{{end}}</pre>{{else}}<p class="body-empty">not available</p>{{end}}</div>
+<div><h4>{{.ProviderBodyLabel}}</h4>{{if .ProviderLines}}<pre>{{range .ProviderLines}}{{if .Class}}<span class="hl st-{{.Class}}">{{.Text}}</span>{{else}}{{.Text}}{{end}}
+{{end}}</pre>{{else}}<p class="body-empty">not available</p>{{end}}</div>
+</div>
+{{end}}</dialog>{{end}}
 `))
 
 type matrixStatusCount struct {
@@ -271,31 +369,42 @@ type matrixStatusCount struct {
 	N      int
 }
 
-// matrixHTMLRow is one detail-table row: the edge plus whether it has
-// findings or provenance to expand.
+type matrixHTMLModal struct {
+	ID, Title, Scope, Check              string
+	Consumer, Provider, Interaction      string
+	ConsumerBodyLabel, ProviderBodyLabel string
+	Status                               matrixStatus
+	Detail                               string
+	Findings                             []diff.Finding
+	ConsumerRecord, ProviderRecord       *deployRecord
+	ConsumerLines, ProviderLines         []bodyLine
+}
+
+// matrixHTMLRow is one detail-table row plus its optional modal.
 type matrixHTMLRow struct {
 	matrixEdge
-	Expand bool
+	Modal *matrixHTMLModal
 }
 
 type matrixEnvGroup struct {
 	Env, Summary, ID string
+	Open             bool
 	Rows             []matrixHTMLRow
 }
 
 // promoRow is one rendered promotion check; Check is empty for the
 // per-service in-sync row.
 type promoRow struct {
-	Service, Check string
-	Status         matrixStatus
-	Detail         string
-	InSync         bool
-	Findings       []diff.Finding
+	promoEdge
+	Check string
+	Modal *matrixHTMLModal
 }
 
 type promoGroup struct {
 	Pair    string // "dev → staging"
 	Summary string
+	ID      string
+	Open    bool
 	Rows    []promoRow
 }
 
@@ -344,6 +453,133 @@ func findingStatus(c diff.Class) matrixStatus {
 		return matrixStatusOK
 	}
 	return matrixStatusUntracked
+}
+
+// bodyLine is one rendered line of a body's canonical IR JSON form; Class is
+// set on every line of a node a finding points at, "" otherwise.
+type bodyLine struct {
+	Text  string
+	Class matrixStatus
+}
+
+// bodyMarks collapses findings to the worst class per path, in the matrix
+// status palette, so bodySide can highlight the lines findings point at.
+func bodyMarks(fs []diff.Finding) map[string]matrixStatus {
+	worst := map[string]diff.Class{}
+	for _, f := range fs {
+		if c, ok := worst[f.Path]; !ok || f.Class > c {
+			worst[f.Path] = f.Class
+		}
+	}
+	marks := make(map[string]matrixStatus, len(worst))
+	for p, c := range worst {
+		marks[p] = findingStatus(c)
+	}
+	return marks
+}
+
+// bodySide renders a schema as its pretty-printed IR JSON, one bodyLine per
+// line. Nodes are addressed with the finding path grammar ($.a.b[], <tag>,
+// {}), so marks apply by exact string match; a marked node highlights its
+// whole block. Property names are sorted, so normalized input renders
+// deterministically (NF3).
+func bodySide(s *ir.Schema, marks map[string]matrixStatus) []bodyLine {
+	w := &bodyWriter{marks: marks}
+	w.node(s, "$", "", 0, "")
+	w.trimComma()
+	return w.lines
+}
+
+type bodyWriter struct {
+	lines []bodyLine
+	marks map[string]matrixStatus
+}
+
+func (w *bodyWriter) line(indent int, text string, class matrixStatus) {
+	w.lines = append(w.lines, bodyLine{Text: strings.Repeat("  ", indent) + text, Class: class})
+}
+
+// trimComma drops the trailing comma of the last emitted line: fields and
+// list elements are emitted comma-terminated, and the enclosing container
+// trims the final one before closing.
+func (w *bodyWriter) trimComma() {
+	if n := len(w.lines); n > 0 {
+		w.lines[n-1].Text = strings.TrimSuffix(w.lines[n-1].Text, ",")
+	}
+}
+
+func jsonStr(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func jsonStrs(ss []string) string {
+	b, _ := json.Marshal(ss)
+	return string(b)
+}
+
+// node renders one schema as a comma-terminated object block, fields in
+// ir.Schema declaration order. prefix is the `"key": ` heading the opening
+// brace; class is inherited from marked ancestors.
+func (w *bodyWriter) node(s *ir.Schema, path, prefix string, indent int, class matrixStatus) {
+	if m, ok := w.marks[path]; ok {
+		class = m
+	}
+	w.line(indent, prefix+"{", class)
+	if s != nil {
+		if s.Type != "" {
+			w.line(indent+1, `"type": `+jsonStr(s.Type)+",", class)
+		}
+		if s.Scalar != "" {
+			w.line(indent+1, `"x-ct-scalar": `+jsonStr(string(s.Scalar))+",", class)
+		}
+		if s.Nullable {
+			w.line(indent+1, `"x-ct-nullable": true,`, class)
+		}
+		if s.Recursive {
+			w.line(indent+1, `"x-ct-recursive": true,`, class)
+		}
+		if len(s.Properties) > 0 {
+			w.line(indent+1, `"properties": {`, class)
+			for _, name := range sortedKeys(s.Properties) {
+				w.node(s.Properties[name], path+"."+name, jsonStr(name)+": ", indent+2, class)
+			}
+			w.trimComma()
+			w.line(indent+1, "},", class)
+		}
+		if len(s.Required) > 0 {
+			w.line(indent+1, `"required": `+jsonStrs(s.Required)+",", class)
+		}
+		if s.Items != nil {
+			w.node(s.Items, path+"[]", `"items": `, indent+1, class)
+		}
+		if len(s.Enum) > 0 {
+			w.line(indent+1, `"enum": `+jsonStrs(s.Enum)+",", class)
+		}
+		if len(s.OneOf) > 0 {
+			w.line(indent+1, `"oneOf": [`, class)
+			for _, b := range s.OneOf {
+				w.node(b, path+"<"+b.DiscriminatorValue+">", "", indent+2, class)
+			}
+			w.trimComma()
+			w.line(indent+1, "],", class)
+		}
+		if s.Discriminator != "" {
+			w.line(indent+1, `"x-ct-discriminator": `+jsonStr(s.Discriminator)+",", class)
+		}
+		if s.DiscriminatorValue != "" {
+			w.line(indent+1, `"x-ct-discriminator-value": `+jsonStr(s.DiscriminatorValue)+",", class)
+		}
+		if s.AdditionalProperties != nil {
+			if v := s.MapValue(); v != nil {
+				w.node(v, path+"{}", `"additionalProperties": `, indent+1, class)
+			} else {
+				w.line(indent+1, `"additionalProperties": true,`, class)
+			}
+		}
+		w.trimComma()
+	}
+	w.line(indent, "},", class)
 }
 
 // anchorSlug makes a string safe for an id/fragment. Distinct inputs can
@@ -403,6 +639,16 @@ func countsSummary(counts []matrixStatusCount) string {
 	return strings.Join(parts, " · ")
 }
 
+func groupOpen(statuses []matrixStatus) bool {
+	for _, s := range statuses {
+		switch s {
+		case matrixStatusIncompatible, matrixStatusError, matrixStatusWarning:
+			return true
+		}
+	}
+	return false
+}
+
 // promoGroups turns the promotion edges into template groups: one per
 // adjacent env pair (input order, which is pipeline order), rows sorted
 // worst-status-first like the env sections.
@@ -415,12 +661,12 @@ func promoGroups(promos []promoEdge) []promoGroup {
 		}
 		pair := promos[start:end]
 		g := promoGroup{Pair: pair[0].From + " → " + pair[0].To}
+		g.ID = "promo-" + anchorSlug(g.Pair)
 		statuses := make([]matrixStatus, len(pair))
 		rows := make([]promoRow, len(pair))
 		for i, p := range pair {
 			statuses[i] = p.Status
-			rows[i] = promoRow{Service: p.Service, Check: promoCheck(p), Status: p.Status, Detail: p.Detail,
-				InSync: p.InSync, Findings: p.Findings}
+			rows[i] = promoRow{promoEdge: p, Check: promoCheck(p)}
 		}
 		sort.SliceStable(rows, func(i, j int) bool {
 			if ra, rb := matrixStatusRank(rows[i].Status), matrixStatusRank(rows[j].Status); ra != rb {
@@ -431,7 +677,39 @@ func promoGroups(promos []promoEdge) []promoGroup {
 			}
 			return rows[i].Check < rows[j].Check
 		})
+		for i := range rows {
+			r := &rows[i]
+			hasBodies := r.ConsumerBody != nil || r.ProviderBody != nil
+			if len(r.Findings) == 0 && r.ConsumerRecord == nil && r.ProviderRecord == nil && !hasBodies {
+				continue
+			}
+			consumer, provider := promoParties(r.promoEdge)
+			m := &matrixHTMLModal{
+				ID:    fmt.Sprintf("d-promo-%s-%d", anchorSlug(g.Pair), i),
+				Title: fmt.Sprintf("%s → %s/%s", consumer, provider, r.Interaction),
+				Scope: "promotion " + g.Pair, Check: r.Check,
+				Consumer: consumer, Provider: provider, Interaction: r.Interaction,
+				Status: r.Status, Detail: r.Detail, Findings: r.Findings,
+				ConsumerRecord: r.ConsumerRecord, ProviderRecord: r.ProviderRecord,
+			}
+			if r.Side == "provides" {
+				m.ConsumerBodyLabel = "target consumer · " + r.To
+				m.ProviderBodyLabel = "candidate provider · " + r.From
+			} else {
+				m.ConsumerBodyLabel = "candidate consumer · " + r.From
+				m.ProviderBodyLabel = "target provider · " + r.To
+			}
+			marks := bodyMarks(r.Findings)
+			if r.ConsumerBody != nil {
+				m.ConsumerLines = bodySide(r.ConsumerBody, marks)
+			}
+			if r.ProviderBody != nil {
+				m.ProviderLines = bodySide(r.ProviderBody, marks)
+			}
+			r.Modal = m
+		}
 		g.Summary = countsSummary(matrixCounts(statuses))
+		g.Open = groupOpen(statuses)
 		g.Rows = rows
 		groups = append(groups, g)
 		start = end
@@ -503,14 +781,32 @@ func promoArrow(promos []promoEdge, from, to string) *pipelineArrow {
 // renderMatrixHTML renders the matrix as a self-contained HTML page
 // (`matrix --format html` / `-o *.html`): the pipeline health strip, then one
 // section per env plus one per promotion pair, worst rows first, with the
-// summary chips doubling as CSS-only status filters and rows expanding to
-// their findings and deploy provenance.
+// summary chips doubling as CSS-only status filters and rows opening a detail
+// modal with findings, deploy provenance and the two bodies side by side.
 func renderMatrixHTML(edges []matrixEdge, promos []promoEdge, pipeline []string) []byte {
 	es := append([]matrixEdge(nil), edges...) // don't reorder the caller's slice
+	envRank := make(map[string]int, len(pipeline))
+	for i, env := range pipeline {
+		if _, exists := envRank[env]; !exists {
+			envRank[env] = i
+		}
+	}
+	envLess := func(a, b string) bool {
+		ra, aInPipeline := envRank[a]
+		rb, bInPipeline := envRank[b]
+		switch {
+		case aInPipeline && bInPipeline:
+			return ra < rb
+		case aInPipeline != bInPipeline:
+			return aInPipeline
+		default:
+			return a < b
+		}
+	}
 	sort.Slice(es, func(i, j int) bool {
 		a, b := es[i], es[j]
 		if a.Env != b.Env {
-			return a.Env < b.Env
+			return envLess(a.Env, b.Env)
 		}
 		if ra, rb := matrixStatusRank(a.Status), matrixStatusRank(b.Status); ra != rb {
 			return ra < rb
@@ -540,10 +836,27 @@ func renderMatrixHTML(edges []matrixEdge, promos []promoEdge, pipeline []string)
 		}
 		env := es[start].Env
 		g := matrixEnvGroup{Env: env, ID: "env-" + anchorSlug(env)}
+		g.Open = groupOpen(edgeStatuses(es[start:end]))
 		g.Rows = make([]matrixHTMLRow, end-start)
 		for i, e := range es[start:end] {
-			g.Rows[i] = matrixHTMLRow{matrixEdge: e,
-				Expand: len(e.Findings) > 0 || e.ConsumerRecord != nil || e.ProviderRecord != nil}
+			row := matrixHTMLRow{matrixEdge: e}
+			hasBodies := e.ConsumerBody != nil && e.ProviderBody != nil
+			if len(e.Findings) > 0 || e.ConsumerRecord != nil || e.ProviderRecord != nil || hasBodies {
+				row.Modal = &matrixHTMLModal{
+					ID:    fmt.Sprintf("d-%s-%d", g.ID, i),
+					Title: fmt.Sprintf("%s → %s/%s", e.Consumer, e.Provider, e.Interaction), Scope: e.Env,
+					Consumer: e.Consumer, Provider: e.Provider, Interaction: e.Interaction,
+					ConsumerBodyLabel: "consumer projection", ProviderBodyLabel: "provider schema",
+					Status: e.Status, Detail: e.Detail, Findings: e.Findings,
+					ConsumerRecord: e.ConsumerRecord, ProviderRecord: e.ProviderRecord,
+				}
+			}
+			if hasBodies && row.Modal != nil {
+				marks := bodyMarks(e.Findings)
+				row.Modal.ConsumerLines = bodySide(e.ConsumerBody, marks)
+				row.Modal.ProviderLines = bodySide(e.ProviderBody, marks)
+			}
+			g.Rows[i] = row
 		}
 		g.Summary = countsSummary(matrixCounts(edgeStatuses(es[start:end])))
 		d.Groups = append(d.Groups, g)

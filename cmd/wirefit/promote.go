@@ -52,12 +52,13 @@ const (
 // deployResult is one candidate-vs-counterpart check. err is set when a
 // pinned blob cannot be read (res is nil then).
 type deployResult struct {
-	side        string // "provides" | "consumes"
-	id          string
-	counterpart string // provides: the consumer; consumes: the provider
-	kind        trackedKind
-	res         *diff.Result
-	err         error
+	side                       string // "provides" | "consumes"
+	id                         string
+	counterpart                string // provides: the consumer; consumes: the provider
+	kind                       trackedKind
+	res                        *diff.Result
+	err                        error
+	consumerBody, providerBody *ir.Schema
 }
 
 // dirOf resolves an interaction's direction from the provider's published
@@ -156,7 +157,7 @@ func candidateFromLock(st *store.Store, service string, sl *store.ServiceLock) (
 	return c, nil
 }
 
-func sortedKeys(m map[string]string) []string {
+func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -192,13 +193,15 @@ func evalDeploy(st *store.Store, c candidate, env string, lock store.EnvLock,
 				continue
 			}
 			delete(mainConsumers, svc)
-			dr := deployResult{side: "provides", id: cp.id, counterpart: svc, kind: tracked}
+			dr := deployResult{side: "provides", id: cp.id, counterpart: svc, kind: tracked,
+				providerBody: cp.schema}
 			proj, err := st.ReadBlob(hash)
 			if err != nil {
 				dr.err = err
 				out = append(out, dr)
 				continue
 			}
+			dr.consumerBody = proj
 			r := diff.Compat(cp.schema, proj, diff.CompatOptions{Direction: cp.dir, StrictParser: strictOf(st, svc)})
 			if sl.RecordedAt.Before(staleBefore) {
 				r.Findings = append(r.Findings, diff.Finding{
@@ -217,12 +220,13 @@ func evalDeploy(st *store.Store, c candidate, env string, lock store.EnvLock,
 				Class: diff.Warning, Rule: "untracked-consumer", Path: "$",
 				Message: fmt.Sprintf("%s has no deploy record in %s; checked against its main-branch usage instead", svc, env),
 			})
-			out = append(out, deployResult{side: "provides", id: cp.id, counterpart: svc, kind: untrackedMain, res: r})
+			out = append(out, deployResult{side: "provides", id: cp.id, counterpart: svc, kind: untrackedMain,
+				res: r, consumerBody: cons.Schema, providerBody: cp.schema})
 		}
 	}
 
 	for _, cc := range c.consumes {
-		dr := deployResult{side: "consumes", id: cc.id, counterpart: cc.provider}
+		dr := deployResult{side: "consumes", id: cc.id, counterpart: cc.provider, consumerBody: cc.schema}
 		dir, ok := dirOf(st, cc.provider, cc.id)
 		if !ok {
 			dr.kind = unpublished
@@ -271,6 +275,7 @@ func evalDeploy(st *store.Store, c candidate, env string, lock store.EnvLock,
 			extra = &diff.Finding{Class: diff.Warning, Rule: "untracked-provider", Path: "$",
 				Message: fmt.Sprintf("%s has no deploy record in %s; checked against its main-branch schema instead", cc.provider, env)}
 		}
+		dr.providerBody = provIR
 		r := diff.Compat(provIR, cc.schema, diff.CompatOptions{Direction: dir, StrictParser: strict})
 		if extra != nil {
 			r.Findings = append(r.Findings, *extra)
@@ -296,10 +301,12 @@ type promoEdge struct {
 	From, To, Service, Side, Counterpart, Interaction string
 	Status                                            matrixStatus
 	Detail                                            string
-	InSync                                            bool `json:",omitempty"`
-	// Findings feed the HTML detail view; no per-side deploy records here,
-	// the candidate spans many blobs.
-	Findings []diff.Finding `json:",omitempty"`
+	InSync                                            bool           `json:",omitempty"`
+	Findings                                          []diff.Finding `json:",omitempty"`
+	// Each row is one interaction even though the service candidate spans many
+	// blobs, so the HTML detail view can carry the exact compared pair.
+	ConsumerRecord, ProviderRecord *deployRecord `json:"-"`
+	ConsumerBody, ProviderBody     *ir.Schema    `json:"-"`
 }
 
 // promoCheck names the single check a promotion row performed, mirroring the
@@ -312,6 +319,40 @@ func promoCheck(e promoEdge) string {
 		return fmt.Sprintf("consumes %s/%s", e.Counterpart, e.Interaction)
 	}
 	return ""
+}
+
+func promoParties(e promoEdge) (consumer, provider string) {
+	if e.Side == "provides" {
+		return e.Counterpart, e.Service
+	}
+	return e.Service, e.Counterpart
+}
+
+func attachPromoRecords(records *deployRecordResolver, e *promoEdge, source *store.ServiceLock, target store.EnvLock) error {
+	consumer, provider := promoParties(*e)
+	var err error
+	switch e.Side {
+	case "provides":
+		hash := source.Provides[e.Interaction]
+		e.ProviderRecord, err = records.resolve(provider, source, "provides/"+e.Interaction, hash)
+		if err != nil {
+			return err
+		}
+		if sl := target[consumer]; sl != nil {
+			key := provider + "/" + e.Interaction
+			e.ConsumerRecord, err = records.resolve(consumer, sl, "consumes/"+key, sl.Consumes[key])
+		}
+	case "consumes":
+		key := provider + "/" + e.Interaction
+		e.ConsumerRecord, err = records.resolve(consumer, source, "consumes/"+key, source.Consumes[key])
+		if err != nil {
+			return err
+		}
+		if sl := target[provider]; sl != nil {
+			e.ProviderRecord, err = records.resolve(provider, sl, "provides/"+e.Interaction, sl.Provides[e.Interaction])
+		}
+	}
+	return err
 }
 
 func inSyncDetail(to, detail string) string {
@@ -336,6 +377,7 @@ func allPromoChecksOK(edges []promoEdge) bool {
 // candidate is A's recorded state, evaluated exactly like can-i-deploy.
 func promoEdges(st *store.Store, pipeline []string, staleBefore time.Time, staleDays int) ([]promoEdge, error) {
 	var edges []promoEdge
+	records := newDeployRecordResolver(st)
 	for i := 0; i+1 < len(pipeline); i++ {
 		from, to := pipeline[i], pipeline[i+1]
 		lockA, err := st.LoadEnvLock(from)
@@ -372,9 +414,13 @@ func promoEdges(st *store.Store, pipeline []string, staleBefore time.Time, stale
 			var serviceEdges []promoEdge
 			for _, dr := range drs {
 				e := promoEdge{From: from, To: to, Service: svc,
-					Side: dr.side, Counterpart: dr.counterpart, Interaction: dr.id, InSync: inSync}
+					Side: dr.side, Counterpart: dr.counterpart, Interaction: dr.id, InSync: inSync,
+					ConsumerBody: dr.consumerBody, ProviderBody: dr.providerBody}
 				if dr.res != nil {
 					e.Findings = dr.res.Findings
+				}
+				if err := attachPromoRecords(records, &e, sl, lockB); err != nil {
+					return nil, err
 				}
 				switch {
 				case dr.err != nil:
