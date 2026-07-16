@@ -213,6 +213,36 @@ func printMatrixTerm(edges []matrixEdge) {
 	}
 }
 
+// printPromoTerm renders the promotion readiness blocks: one per adjacent
+// env pair, in pipeline order.
+func printPromoTerm(promos []promoEdge) {
+	for start := 0; start < len(promos); {
+		end := start
+		for end < len(promos) && promos[end].From == promos[start].From && promos[end].To == promos[start].To {
+			end++
+		}
+		pair := promos[start:end]
+		fmt.Printf("\npromotion %s → %s\n", pair[0].From, pair[0].To)
+		svcW, checkW := 0, 0
+		for _, p := range pair {
+			svcW = max(svcW, len(p.Service))
+			checkW = max(checkW, len([]rune(promoCheck(p))))
+		}
+		for _, p := range pair {
+			check := promoCheck(p)
+			// pad by runes: ⇐ in check is multibyte, Printf pads by bytes
+			pad := strings.Repeat(" ", checkW-len([]rune(check)))
+			fmt.Printf("  %s %-*s  %s%s  %s\n", matrixGlyph(p.Status), svcW, p.Service, check, pad, p.Status)
+			if p.Detail != "" {
+				for _, line := range wrap(p.Detail, 76) {
+					fmt.Println(strings.Repeat(" ", svcW+6) + paint(sgrDim, line))
+				}
+			}
+		}
+		start = end
+	}
+}
+
 // printCheck renders the check dashboard: one row per interaction carrying
 // its worst severity and finding counts, details indented beneath.
 func printCheck(service string, results map[string]*diff.Result, worst int) {

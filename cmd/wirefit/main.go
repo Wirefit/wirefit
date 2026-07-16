@@ -83,7 +83,9 @@ usage: wirefit <command> [flags]
   override add    append a justified, expiring override to wirefit-overrides.yaml
   record-deploy   pin this service's published contracts as deployed in an env
   can-i-deploy    check the candidate against what is DEPLOYED in an env
-  matrix          render the deployed compatibility matrix across envs
+                  (--from-env <env>: gate promoting what runs there instead)
+  matrix          render the deployed compatibility matrix across envs, plus
+                  promotion readiness when _envs/pipeline.yaml (or --envs) orders them
   version    print version
 
 not yet implemented: init
