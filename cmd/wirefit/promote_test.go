@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -428,6 +429,51 @@ func TestMatrixEdgesDetail(t *testing.T) {
 	}
 	if untracked.Status != matrixStatusUntracked || untracked.ProviderRecord != nil || untracked.ConsumerRecord == nil {
 		t.Errorf("untracked edge must carry consumer provenance only: %+v", untracked)
+	}
+}
+
+func TestMatrixEdgesVersions(t *testing.T) {
+	st := promoRepo(t)
+	chash := blob(t, st, irA)
+	phash := blob(t, st, irAB)
+	saveLock(t, st, "prod", store.EnvLock{
+		"web-app": {RecordedAt: time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC), RecordedBy: "alice",
+			Consumes: map[string]string{"order-service/orders.get": chash}},
+		"order-service": {RecordedAt: time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC), RecordedBy: "bob",
+			Provides: map[string]string{"orders.get": phash}},
+	})
+	// The consumer's log knows the deployed hash as v1; the provider's log has
+	// a newer publish after it, so the deployed hash resolves to v2 of 3.
+	if err := st.SaveVersions("web-app", store.VersionLog{
+		"consumes/order-service/orders.get": {chash},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVersions("order-service", store.VersionLog{
+		"provides/orders.get": {blob(t, st, irB), phash, blob(t, st, irA)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	edges, err := matrixEdges(st, neverStale())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("got %d edges, want 1: %+v", len(edges), edges)
+	}
+	e := edges[0]
+	if e.ConsumerRecord.Version != 1 || e.ProviderRecord.Version != 2 {
+		t.Errorf("versions = v%d / v%d, want v1 / v2", e.ConsumerRecord.Version, e.ProviderRecord.Version)
+	}
+	if e.ConsumerRecord.Label() != "v1" || e.ProviderRecord.Label() != "v2" {
+		t.Errorf("labels = %q / %q, want v1 / v2", e.ConsumerRecord.Label(), e.ProviderRecord.Label())
+	}
+	// JSON stays additive: Version is omitted when unknown, present when known.
+	if data, err := json.Marshal(&deployRecord{Hash: "abc"}); err != nil || strings.Contains(string(data), "Version") {
+		t.Errorf("zero Version must be omitted from JSON: %s (%v)", data, err)
+	}
+	if data, err := json.Marshal(e.ConsumerRecord); err != nil || !strings.Contains(string(data), `"Version":1`) {
+		t.Errorf("known Version missing from JSON: %s (%v)", data, err)
 	}
 }
 

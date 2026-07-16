@@ -75,16 +75,26 @@ func matrixMDBadge(status matrixStatus) string {
 	return ""
 }
 
+// recLabel is the markdown version cell: empty for a missing record, otherwise
+// the publish counter (or hash fallback). Hashes stay an HTML/JSON detail.
+func recLabel(r *deployRecord) string {
+	if r == nil {
+		return ""
+	}
+	return r.Label()
+}
+
 // renderMatrixMD renders the deployed matrix as a standalone markdown page
 // (`matrix --format md` / `-o *.md`).
 func renderMatrixMD(edges []matrixEdge, promos []promoEdge) []byte {
 	var b strings.Builder
 	b.WriteString("# wirefit deployed compatibility matrix\n\n")
-	b.WriteString("| env | consumer | provider / interaction | status | detail |\n|---|---|---|---|---|\n")
+	b.WriteString("| env | consumer | version | provider / interaction | version | status | detail |\n|---|---|---|---|---|---|---|\n")
 	for _, e := range edges {
 		detail := strings.ReplaceAll(e.Detail, "|", "\\|")
-		fmt.Fprintf(&b, "| %s | %s | %s / %s | %s %s | %s |\n",
-			e.Env, e.Consumer, e.Provider, e.Interaction, matrixMDBadge(e.Status), e.Status, detail)
+		fmt.Fprintf(&b, "| %s | %s | %s | %s / %s | %s | %s %s | %s |\n",
+			e.Env, e.Consumer, recLabel(e.ConsumerRecord), e.Provider, e.Interaction,
+			recLabel(e.ProviderRecord), matrixMDBadge(e.Status), e.Status, detail)
 	}
 	if len(promos) > 0 {
 		b.WriteString("\n## promotion readiness\n\n")
@@ -222,8 +232,8 @@ var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
 <table>
 <thead><tr><th>consumer</th><th>version</th><th>provider / interaction</th><th>version</th><th>status</th><th>detail</th></tr></thead>
 <tbody>
-{{range .Rows}}<tr class="row-{{.Status}}"{{if .Expand}} data-exp{{end}}><td>{{.Consumer}}</td><td class="ver">{{with .ConsumerRecord}}<code title="recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Hash}}</code>{{end}}</td><td><code>{{.Provider}}/{{.Interaction}}</code></td><td class="ver">{{with .ProviderRecord}}<code title="recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Hash}}</code>{{end}}</td><td><span class="badge st-{{.Status}}" title="{{sthelp .Status}}">{{.Status}}</span></td><td class="detail">{{.Detail}}</td></tr>
-{{if .Expand}}<tr class="exp row-{{.Status}}" hidden><td colspan="6">{{if .Findings}}<table class="findings"><tbody>{{range .Findings}}<tr><td><span class="badge st-{{fclass .Class}}">{{.Class}}</span></td><td><code>{{.Rule}}</code></td><td><code>{{.Path}}</code></td><td>{{.Message}}</td></tr>{{end}}</tbody></table>{{end}}{{with .ConsumerRecord}}<p class="prov">consumer version <code>{{.Hash}}</code> · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>{{end}}{{with .ProviderRecord}}<p class="prov">provider version <code>{{.Hash}}</code> · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>{{end}}</td></tr>
+{{range .Rows}}<tr class="row-{{.Status}}"{{if .Expand}} data-exp{{end}}><td>{{.Consumer}}</td><td class="ver">{{with .ConsumerRecord}}<code title="{{.Hash}} · recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Label}}</code>{{end}}</td><td><code>{{.Provider}}/{{.Interaction}}</code></td><td class="ver">{{with .ProviderRecord}}<code title="{{.Hash}} · recorded {{.RecordedAt}} by {{.RecordedBy}}">{{.Label}}</code>{{end}}</td><td><span class="badge st-{{.Status}}" title="{{sthelp .Status}}">{{.Status}}</span></td><td class="detail">{{.Detail}}</td></tr>
+{{if .Expand}}<tr class="exp row-{{.Status}}" hidden><td colspan="6">{{if .Findings}}<table class="findings"><tbody>{{range .Findings}}<tr><td><span class="badge st-{{fclass .Class}}">{{.Class}}</span></td><td><code>{{.Rule}}</code></td><td><code>{{.Path}}</code></td><td>{{.Message}}</td></tr>{{end}}</tbody></table>{{end}}{{with .ConsumerRecord}}<p class="prov">consumer version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>{{end}}{{with .ProviderRecord}}<p class="prov">provider version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded {{.RecordedAt}} by {{.RecordedBy}}</p>{{end}}</td></tr>
 {{end}}{{end}}</tbody>
 </table>
 </div>

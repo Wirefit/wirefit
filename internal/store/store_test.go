@@ -82,6 +82,9 @@ consumes:
 	if !exists(t, filepath.Join(repo, "contracts", "svc", "manifest.yaml")) {
 		t.Error("manifest copy must survive pruning")
 	}
+	if !exists(t, filepath.Join(repo, "contracts", "svc", "versions.json")) {
+		t.Error("version log must survive pruning")
+	}
 }
 
 func TestPublishPruneCommitsDeletions(t *testing.T) {

@@ -3,6 +3,7 @@
 // Layout inside the contracts repo working copy:
 //
 //	contracts/<service>/manifest.yaml
+//	contracts/<service>/versions.json
 //	contracts/<service>/provides/<interaction-id>.ir.json
 //	contracts/<service>/consumes/<provider>/<interaction-id>.ir.json
 //
@@ -107,8 +108,8 @@ func (s *Store) ConsumersOf(provider, id string) (map[string]diff.Consumer, erro
 	return out, nil
 }
 
-// Publish writes a service's manifest copy and canonicalized IR files, then
-// commits (and pushes, when a remote exists) unless noCommit is set.
+// Publish writes a service's manifest copy, canonicalized IR files and version
+// log, then commits (and pushes, when a remote exists) unless noCommit is set.
 //
 // provides:  interaction id → IR bytes
 // consumes:  provider → interaction id → IR bytes
@@ -126,36 +127,52 @@ func (s *Store) Publish(m *manifest.Manifest, manifestSrc string,
 	if err := os.WriteFile(filepath.Join(dir, "manifest.yaml"), src, 0o644); err != nil {
 		return err
 	}
-	write := func(rel string, raw []byte) error {
+	write := func(rel string, raw []byte) (string, error) {
 		canon, err := ir.Canonicalize(raw)
 		if err != nil {
-			return fmt.Errorf("%s: %w", rel, err)
+			return "", fmt.Errorf("%s: %w", rel, err)
 		}
 		p := filepath.Join(dir, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return err
+			return "", err
 		}
 		// Content-addressed copy for env lockfile resolution (Phase 4).
-		if _, err := s.WriteBlob(canon); err != nil {
-			return err
+		hash, err := s.WriteBlob(canon)
+		if err != nil {
+			return "", err
 		}
 		// Stored pretty-printed for readability; the hash is over the compact form.
 		pretty, err := ir.CanonicalIndent(canon)
 		if err != nil {
-			return fmt.Errorf("%s: %w", rel, err)
+			return "", fmt.Errorf("%s: %w", rel, err)
 		}
-		return os.WriteFile(p, append(pretty, '\n'), 0o644)
+		return hash, os.WriteFile(p, append(pretty, '\n'), 0o644)
 	}
+	vlog, err := s.LoadVersions(m.Service)
+	if err != nil {
+		return err
+	}
+	bumped := false
 	for id, raw := range provides {
-		if err := write(filepath.Join("provides", id+".ir.json"), raw); err != nil {
+		hash, err := write(filepath.Join("provides", id+".ir.json"), raw)
+		if err != nil {
 			return err
 		}
+		// Log refs use literal slashes, not filepath separators (portable file).
+		bumped = vlog.Bump("provides/"+id, hash) || bumped
 	}
 	for prov, byID := range consumes {
 		for id, raw := range byID {
-			if err := write(filepath.Join("consumes", prov, id+".ir.json"), raw); err != nil {
+			hash, err := write(filepath.Join("consumes", prov, id+".ir.json"), raw)
+			if err != nil {
 				return err
 			}
+			bumped = vlog.Bump("consumes/"+prov+"/"+id, hash) || bumped
+		}
+	}
+	if bumped {
+		if err := s.SaveVersions(m.Service, vlog); err != nil {
+			return err
 		}
 	}
 	if err := pruneStale(dir, provides, consumes); err != nil {

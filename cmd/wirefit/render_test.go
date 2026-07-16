@@ -18,8 +18,9 @@ var matrixFixture = []matrixEdge{
 			{Class: diff.Breaking, Rule: "field-missing", Path: "$.items[]", Message: "field removed <script>alert(1)</script>"},
 			{Class: diff.Warning, Rule: "type-narrowed", Path: "$.qty", Message: "int64 narrowed to int32"},
 		},
-		ConsumerRecord: &deployRecord{RecordedAt: "2026-05-01T12:00:00Z", RecordedBy: "alice", Hash: "abc123def456"},
-		ProviderRecord: &deployRecord{RecordedAt: "2026-04-28T09:30:00Z", RecordedBy: "bob", Hash: "0123456789ab"}},
+		ConsumerRecord: &deployRecord{RecordedAt: "2026-05-01T12:00:00Z", RecordedBy: "alice", Hash: "abc123def456", Version: 3},
+		ProviderRecord: &deployRecord{RecordedAt: "2026-04-28T09:30:00Z", RecordedBy: "bob", Hash: "0123456789ab", Version: 7}},
+	// Version-less record: published before version logs existed, renders the hash.
 	{Env: "staging", Consumer: "mobile", Provider: "billing", Interaction: "invoices.get", Status: matrixStatusUntracked,
 		Detail:         "provider has no deploy record in this env",
 		ConsumerRecord: &deployRecord{RecordedAt: "2026-05-02T08:00:00Z", RecordedBy: "carol", Hash: "feedbeefcafe"}},
@@ -41,8 +42,10 @@ var promoFixture = []promoEdge{
 func TestRenderMatrixMD(t *testing.T) {
 	out := string(renderMatrixMD(matrixFixture, nil))
 	for _, want := range []string{
-		"| prod | web-app | order-service / orders.get-order | ✅ ok |  |",
-		"| staging | mobile | order-service / orders.get-order | 🔴 INCOMPATIBLE |",
+		"| prod | web-app |  | order-service / orders.get-order |  | ✅ ok |  |",
+		"| staging | mobile | v3 | order-service / orders.get-order | v7 | 🔴 INCOMPATIBLE |",
+		// Version-less records fall back to the hash.
+		"| staging | mobile | feedbeefcafe | billing / invoices.get |  | ⚪ untracked |",
 		`emitted int64, parsed as float64 \| precision loss`,
 	} {
 		if !strings.Contains(out, want) {
@@ -85,15 +88,18 @@ func TestRenderMatrixHTML(t *testing.T) {
 		// The worst staging row expands to its findings and provenance.
 		`<tr class="row-INCOMPATIBLE" data-exp><td>mobile</td>`,
 		`<th>consumer</th><th>version</th><th>provider / interaction</th><th>version</th>`,
-		`<td class="ver"><code title="recorded 2026-05-01T12:00:00Z by alice">abc123def456</code></td>`,
-		`<td class="ver"><code title="recorded 2026-04-28T09:30:00Z by bob">0123456789ab</code></td>`,
+		`<td class="ver"><code title="abc123def456 · recorded 2026-05-01T12:00:00Z by alice">v3</code></td>`,
+		`<td class="ver"><code title="0123456789ab · recorded 2026-04-28T09:30:00Z by bob">v7</code></td>`,
+		// A version-less record falls back to the hash in the cell.
+		`<td class="ver"><code title="feedbeefcafe · recorded 2026-05-02T08:00:00Z by carol">feedbeefcafe</code></td>`,
 		// Rows without a deploy record on a side leave that version blank.
 		`<td class="ver"></td>`,
 		`<tr class="exp row-INCOMPATIBLE" hidden>`,
 		`<code>field-missing</code>`,
-		`consumer version <code>abc123def456</code> · recorded 2026-05-01T12:00:00Z by alice`,
-		`provider version <code>0123456789ab</code> · recorded 2026-04-28T09:30:00Z by bob`,
-		// The untracked edge has provenance for the recorded side only.
+		`consumer version <code>v3</code> · hash <code>abc123def456</code> · recorded 2026-05-01T12:00:00Z by alice`,
+		`provider version <code>v7</code> · hash <code>0123456789ab</code> · recorded 2026-04-28T09:30:00Z by bob`,
+		// The untracked edge has provenance for the recorded side only, and its
+		// version-less record shows the hash once, without a hash suffix.
 		`consumer version <code>feedbeefcafe</code> · recorded 2026-05-02T08:00:00Z by carol`,
 		// Without a pipeline the strip still lists the envs, without arrows.
 		`<nav class="pipeline">`,

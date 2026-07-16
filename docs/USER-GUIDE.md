@@ -369,6 +369,10 @@ wirefit closes this with environment lockfiles in the contracts repo:
 - Counterparts with no deploy record are checked against main and flagged *untracked* —
   never silently green. Records older than `--stale-days` (30) are flagged stale.
 - `matrix` renders the whole org: env × consumer → provider/interaction with ✅/⚠️/🔴.
+  Each side is labeled with its publish counter (`v4`, bumped per interaction whenever
+  `publish` lands changed content, tracked in `contracts/<service>/versions.json`); the
+  content hash stays in the HTML tooltip and the JSON output. Contracts published before
+  the version log existed fall back to the hash label.
 
 ### Promotion readiness (stage N → stage N+1)
 

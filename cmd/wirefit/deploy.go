@@ -238,6 +238,16 @@ type deployRecord struct {
 	RecordedAt string // RFC3339 UTC, straight from the stored lock (stable, NF3)
 	RecordedBy string
 	Hash       string // first 12 hex of the sha256 blob hash
+	Version    int    `json:",omitempty"` // publish counter; 0 when unknown (published before version logs)
+}
+
+// Label is the display form of the deployed version: the publish counter when
+// known, the content hash for records from before version logs existed.
+func (r *deployRecord) Label() string {
+	if r.Version > 0 {
+		return fmt.Sprintf("v%d", r.Version)
+	}
+	return r.Hash
 }
 
 func shortHash(h string) string {
@@ -248,11 +258,12 @@ func shortHash(h string) string {
 	return h
 }
 
-func newDeployRecord(sl *store.ServiceLock, hash string) *deployRecord {
+func newDeployRecord(sl *store.ServiceLock, hash string, ver int) *deployRecord {
 	return &deployRecord{
 		RecordedAt: sl.RecordedAt.UTC().Format(time.RFC3339),
 		RecordedBy: sl.RecordedBy,
 		Hash:       shortHash(hash),
+		Version:    ver,
 	}
 }
 
@@ -373,6 +384,18 @@ func cmdMatrix(args []string) int {
 }
 
 func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
+	vlogs := map[string]store.VersionLog{}
+	versions := func(service string) (store.VersionLog, error) {
+		v, ok := vlogs[service]
+		if !ok {
+			var err error
+			if v, err = st.LoadVersions(service); err != nil {
+				return nil, err
+			}
+			vlogs[service] = v
+		}
+		return v, nil
+	}
 	var edges []matrixEdge
 	for _, env := range st.Envs() {
 		lock, err := st.LoadEnvLock(env)
@@ -380,10 +403,14 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 			return nil, err
 		}
 		for consumer, sl := range lock {
+			cvlog, err := versions(consumer)
+			if err != nil {
+				return nil, err
+			}
 			for key, chash := range sl.Consumes {
 				provider, id, _ := cutString(key, "/")
 				e := matrixEdge{Env: env, Consumer: consumer, Provider: provider, Interaction: id,
-					ConsumerRecord: newDeployRecord(sl, chash)}
+					ConsumerRecord: newDeployRecord(sl, chash, cvlog.Resolve("consumes/"+key, chash))}
 				psl, ok := lock[provider]
 				var phash string
 				if ok {
@@ -401,7 +428,11 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 					edges = append(edges, e)
 					continue
 				}
-				e.ProviderRecord = newDeployRecord(psl, phash)
+				pvlog, err := versions(provider)
+				if err != nil {
+					return nil, err
+				}
+				e.ProviderRecord = newDeployRecord(psl, phash, pvlog.Resolve("provides/"+id, phash))
 				dir := diff.P2C
 				if d, ok := dirOf(st, provider, id); ok {
 					dir = d
