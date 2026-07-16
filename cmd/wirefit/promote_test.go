@@ -360,7 +360,7 @@ func TestPromoEdges(t *testing.T) {
 	if e := find("dev", "order-service", "web-app"); e.Status != matrixStatusIncompatible {
 		t.Errorf("breaking promotion: status = %s, want INCOMPATIBLE (%+v)", e.Status, e)
 	}
-	if e := find("dev", "web-app", ""); e.Status != matrixStatusOK || e.Detail == "" {
+	if e := find("dev", "web-app", ""); e.Status != matrixStatusOK || !e.InSync || e.Detail == "" {
 		t.Errorf("in-sync service: %+v, want an ok row with detail", e)
 	}
 	if e := find("dev", "broken", ""); e.Status != matrixStatusError {
@@ -392,6 +392,44 @@ func TestPromoEdges(t *testing.T) {
 	}
 	if !reflect.DeepEqual(edges, again) {
 		t.Error("promoEdges is not deterministic")
+	}
+}
+
+func TestPromoEdgesInSyncPreservesCompatibility(t *testing.T) {
+	st := promoRepo(t)
+	provider := map[string]string{"orders.get": blob(t, st, irB)}
+	consumer := map[string]string{"order-service/orders.get": blob(t, st, irA)}
+	for _, env := range []string{"dev", "staging"} {
+		saveLock(t, st, env, store.EnvLock{
+			"order-service": {RecordedAt: time.Now(), Provides: provider},
+			"web-app":       {RecordedAt: time.Now(), Consumes: consumer},
+		})
+	}
+	edges, err := promoEdges(st, []string{"dev", "staging"}, neverStale(), 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	find := func(service, counterpart string) *promoEdge {
+		for i := range edges {
+			if edges[i].Service == service && edges[i].Counterpart == counterpart {
+				return &edges[i]
+			}
+		}
+		t.Fatalf("no edge service=%s counterpart=%s in %+v", service, counterpart, edges)
+		return nil
+	}
+	for _, e := range []*promoEdge{find("order-service", "web-app"), find("web-app", "order-service")} {
+		if !e.InSync || e.Status != matrixStatusIncompatible {
+			t.Errorf("in-sync incompatible edge = %+v, want InSync + INCOMPATIBLE", e)
+		}
+		if !strings.Contains(e.Detail, "in sync:") || !strings.Contains(e.Detail, "parser requires field") {
+			t.Errorf("detail = %q, want sync state and true compatibility", e.Detail)
+		}
+	}
+	for _, e := range edges {
+		if e.Service == "web-app" && e.Counterpart == "" && e.Status == matrixStatusOK {
+			t.Errorf("incompatible in-sync service was collapsed to ok: %+v", e)
+		}
 	}
 }
 

@@ -296,6 +296,7 @@ type promoEdge struct {
 	From, To, Service, Side, Counterpart, Interaction string
 	Status                                            matrixStatus
 	Detail                                            string
+	InSync                                            bool `json:",omitempty"`
 	// Findings feed the HTML detail view; no per-side deploy records here,
 	// the candidate spans many blobs.
 	Findings []diff.Finding `json:",omitempty"`
@@ -311,6 +312,23 @@ func promoCheck(e promoEdge) string {
 		return fmt.Sprintf("consumes %s/%s", e.Counterpart, e.Interaction)
 	}
 	return ""
+}
+
+func inSyncDetail(to, detail string) string {
+	base := "in sync: the same contracts are already deployed in " + to
+	if detail == "" {
+		return base
+	}
+	return trimJoin(base, detail)
+}
+
+func allPromoChecksOK(edges []promoEdge) bool {
+	for _, e := range edges {
+		if e.Status != matrixStatusOK {
+			return false
+		}
+	}
+	return true
 }
 
 // promoEdges answers, for each adjacent pipeline pair (A, B) and each service
@@ -331,18 +349,18 @@ func promoEdges(st *store.Store, pipeline []string, staleBefore time.Time, stale
 		var chunk []promoEdge
 		for _, svc := range sortedLockKeys(lockA) {
 			sl := lockA[svc]
-			if slB, ok := lockB[svc]; ok && maps.Equal(sl.Provides, slB.Provides) && maps.Equal(sl.Consumes, slB.Consumes) {
-				chunk = append(chunk, promoEdge{From: from, To: to, Service: svc, Status: matrixStatusOK,
-					Detail: "in sync: the same contracts are already deployed in " + to})
-				continue
-			}
+			slB, recordedInTarget := lockB[svc]
+			inSync := recordedInTarget && maps.Equal(sl.Provides, slB.Provides) && maps.Equal(sl.Consumes, slB.Consumes)
 			stale := sl.RecordedAt.Before(staleBefore)
 			cand, err := candidateFromLock(st, svc, sl)
 			if err != nil {
 				e := promoEdge{From: from, To: to, Service: svc,
-					Status: matrixStatusError, Detail: "missing blob; re-publish + re-record"}
+					Status: matrixStatusError, Detail: "missing blob; re-publish + re-record", InSync: inSync}
 				if stale {
 					e.Detail = trimJoin(e.Detail, "stale deploy record")
+				}
+				if inSync {
+					e.Detail = inSyncDetail(to, e.Detail)
 				}
 				chunk = append(chunk, e)
 				continue
@@ -351,9 +369,10 @@ func promoEdges(st *store.Store, pipeline []string, staleBefore time.Time, stale
 			if err != nil {
 				return nil, err
 			}
+			var serviceEdges []promoEdge
 			for _, dr := range drs {
 				e := promoEdge{From: from, To: to, Service: svc,
-					Side: dr.side, Counterpart: dr.counterpart, Interaction: dr.id}
+					Side: dr.side, Counterpart: dr.counterpart, Interaction: dr.id, InSync: inSync}
 				if dr.res != nil {
 					e.Findings = dr.res.Findings
 				}
@@ -378,8 +397,17 @@ func promoEdges(st *store.Store, pipeline []string, staleBefore time.Time, stale
 				if stale {
 					e.Detail = trimJoin(e.Detail, "stale deploy record")
 				}
-				chunk = append(chunk, e)
+				if inSync {
+					e.Detail = inSyncDetail(to, e.Detail)
+				}
+				serviceEdges = append(serviceEdges, e)
 			}
+			if inSync && allPromoChecksOK(serviceEdges) {
+				chunk = append(chunk, promoEdge{From: from, To: to, Service: svc, Status: matrixStatusOK,
+					Detail: inSyncDetail(to, ""), InSync: true})
+				continue
+			}
+			chunk = append(chunk, serviceEdges...)
 		}
 		// Sort within the pair: the pairs themselves keep pipeline order.
 		sort.Slice(chunk, func(i, j int) bool {

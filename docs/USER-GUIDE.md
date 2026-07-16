@@ -388,8 +388,10 @@ With that file present (or `matrix --envs dev,staging,production` ad hoc), `matr
 appends one *promotion* section per adjacent pair: for every service recorded on
 stage N, would the version running **there** be compatible with what runs on stage
 N+1? Services whose recorded hashes already match the next stage show as a single
-*in sync* row. A blocked promotion does **not** fail `matrix` (exit codes stay about
-the deployed state); the scriptable gate for one service's promotion is
+*in sync* row when their target-side compatibility is healthy. Existing warnings or
+incompatibilities keep their true status and checks, marked *in sync*, so the report
+never presents an unhealthy target edge as green. A blocked promotion does **not** fail
+`matrix` (exit codes stay about the deployed state); the scriptable gate for one service is
 `can-i-deploy --from-env <stage-N> --env <stage-N+1> --service <name>`.
 
 Run the deploy demo (`run-deploy-demo.sh`) in [wirefit/examples](https://github.com/wirefit/examples) to watch the entire scenario.

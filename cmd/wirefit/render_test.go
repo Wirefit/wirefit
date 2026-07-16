@@ -31,7 +31,7 @@ var matrixFixture = []matrixEdge{
 var promoFixture = []promoEdge{
 	{From: "dev", To: "staging", Service: "order-service", Side: "provides", Counterpart: "web-app",
 		Interaction: "orders.get-order", Status: matrixStatusIncompatible, Detail: "parser requires field <b>a</b>"},
-	{From: "dev", To: "staging", Service: "web-app", Status: matrixStatusOK,
+	{From: "dev", To: "staging", Service: "web-app", Status: matrixStatusOK, InSync: true,
 		Detail: "in sync: the same contracts are already deployed in staging"},
 	{From: "staging", To: "prod", Service: "order-service", Side: "consumes", Counterpart: "billing",
 		Interaction: "invoices.get", Status: matrixStatusUntracked, Detail: "billing has no deploy record in prod",
@@ -175,6 +175,19 @@ func TestRenderMatrixHTMLPipeline(t *testing.T) {
 	qa, prod := strings.Index(out, `>qa</span>`), strings.Index(out, `href="#env-prod"`)
 	if !(dev < staging && staging < qa && qa < prod) {
 		t.Errorf("strip order wrong: dev=%d staging=%d qa=%d prod=%d", dev, staging, qa, prod)
+	}
+}
+
+func TestPromoArrowInSyncTargetHealth(t *testing.T) {
+	arrow := promoArrow([]promoEdge{{From: "dev", To: "staging", Service: "web-app",
+		Status: matrixStatusIncompatible, InSync: true}}, "dev", "staging")
+	if arrow.Status != matrixStatusIncompatible {
+		t.Errorf("status = %s, want INCOMPATIBLE", arrow.Status)
+	}
+	for _, want := range []string{"no pending contract changes", "target compatibility: 1 INCOMPATIBLE"} {
+		if !strings.Contains(arrow.Title, want) {
+			t.Errorf("title = %q, want %q", arrow.Title, want)
+		}
 	}
 }
 

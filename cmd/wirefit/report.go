@@ -223,7 +223,7 @@ var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
 {{range .Counts}}<input type="checkbox" id="f-{{.Status}}" checked>
 {{end}}<h1>Deployed compatibility matrix</h1>
 <p class="sub">{{.EnvLabel}} · {{.EdgeLabel}}{{if .PromoLabel}} · {{.PromoLabel}}{{end}}</p>
-{{if .Pipeline}}<nav class="pipeline">{{range .Pipeline}}{{if .Anchor}}<a class="pnode" href="#{{.Anchor}}"><span class="badge st-{{.Status}}">{{.Env}}</span><span class="psum">{{.Summary}}</span></a>{{else}}<span class="pnode"><span class="badge st-{{.Status}}">{{.Env}}</span><span class="psum">{{.Summary}}</span></span>{{end}}{{with .Arrow}} <span class="parrow pa-{{.Status}}" title="{{.Title}}">→</span> {{end}}{{end}}<span class="hint">badges = health per env · arrows = safe to promote? (hover for detail)</span></nav>
+{{if .Pipeline}}<nav class="pipeline">{{range .Pipeline}}{{if .Anchor}}<a class="pnode" href="#{{.Anchor}}"><span class="badge st-{{.Status}}">{{.Env}}</span><span class="psum">{{.Summary}}</span></a>{{else}}<span class="pnode"><span class="badge st-{{.Status}}">{{.Env}}</span><span class="psum">{{.Summary}}</span></span>{{end}}{{with .Arrow}} <span class="parrow pa-{{.Status}}" title="{{.Title}}">→</span> {{end}}{{end}}<span class="hint">badges = health per env · arrows = readiness or in-sync target health</span></nav>
 {{end}}{{if .Verdict}}<p class="verdict {{.VerdictTone}}">{{.Verdict}}</p>
 {{end}}{{if .Counts}}<div class="chips">{{range .Counts}}<label class="chip st-{{.Status}}" for="f-{{.Status}}" title="{{sthelp .Status}}">{{.N}} {{.Status}}</label>{{end}}<span class="hint">click a chip to hide or show that status · click a row for findings and deployed versions</span></div>
 {{end}}{{range .Groups}}<section id="{{.ID}}">
@@ -289,6 +289,7 @@ type promoRow struct {
 	Service, Check string
 	Status         matrixStatus
 	Detail         string
+	InSync         bool
 	Findings       []diff.Finding
 }
 
@@ -418,7 +419,8 @@ func promoGroups(promos []promoEdge) []promoGroup {
 		rows := make([]promoRow, len(pair))
 		for i, p := range pair {
 			statuses[i] = p.Status
-			rows[i] = promoRow{Service: p.Service, Check: promoCheck(p), Status: p.Status, Detail: p.Detail, Findings: p.Findings}
+			rows[i] = promoRow{Service: p.Service, Check: promoCheck(p), Status: p.Status, Detail: p.Detail,
+				InSync: p.InSync, Findings: p.Findings}
 		}
 		sort.SliceStable(rows, func(i, j int) bool {
 			if ra, rb := matrixStatusRank(rows[i].Status), matrixStatusRank(rows[j].Status); ra != rb {
@@ -478,9 +480,11 @@ func buildPipeline(pipeline []string, groups []matrixEnvGroup, promos []promoEdg
 // arrow between their strip nodes.
 func promoArrow(promos []promoEdge, from, to string) *pipelineArrow {
 	var statuses []matrixStatus
+	allInSync := true
 	for _, p := range promos {
 		if p.From == from && p.To == to {
 			statuses = append(statuses, p.Status)
+			allInSync = allInSync && p.InSync
 		}
 	}
 	if len(statuses) == 0 {
@@ -488,6 +492,10 @@ func promoArrow(promos []promoEdge, from, to string) *pipelineArrow {
 			Title: fmt.Sprintf("promote %s → %s: no promotion checks", from, to)}
 	}
 	counts := matrixCounts(statuses)
+	if allInSync {
+		return &pipelineArrow{Status: counts[0].Status,
+			Title: fmt.Sprintf("%s → %s: no pending contract changes · target compatibility: %s", from, to, countsSummary(counts))}
+	}
 	return &pipelineArrow{Status: counts[0].Status,
 		Title: fmt.Sprintf("promote %s → %s: %s", from, to, countsSummary(counts))}
 }
