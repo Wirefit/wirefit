@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 
 var matrixFixture = []matrixEdge{
 	{Env: "prod", Consumer: "web-app", Provider: "order-service", Interaction: "orders.get-order", Status: matrixStatusOK},
+	{Env: "dev", Consumer: "web-app", Provider: "order-service", Interaction: "orders.get-order", Status: matrixStatusOK},
 	{Env: "staging", Consumer: "web-app", Provider: "order-service", Interaction: "orders.get-order",
 		Status: matrixStatusWarning, Detail: "emitted int64, parsed as float64 | precision loss"},
 	{Env: "staging", Consumer: "mobile", Provider: "order-service", Interaction: "orders.get-order",
@@ -63,6 +65,60 @@ var promoFixture = []promoEdge{
 		ConsumerRecord: &deployRecord{RecordedAt: "2026-05-04T11:00:00Z", RecordedBy: "frank", Hash: "333333333333", Version: 2}},
 }
 
+// inventoryFixture mirrors the deploy records behind matrixFixture, plus
+// recommendation-service: a provider nobody consumes, visible only here.
+var inventoryFixture = []invService{
+	{Service: "billing", Envs: []invEnv{
+		{Env: "dev", RecordedAt: "2026-04-20T10:00:00Z", RecordedBy: "erin",
+			Provides: []invItem{{Key: "invoices.get", Record: &deployRecord{
+				RecordedAt: "2026-04-20T10:00:00Z", RecordedBy: "erin", Hash: "aaaaaaaaaaaa", Version: 5}}}},
+	}},
+	{Service: "mobile", Envs: []invEnv{
+		{Env: "staging", RecordedAt: "2026-05-01T12:00:00Z", RecordedBy: "alice",
+			Consumes: []invItem{
+				{Key: "billing/invoices.get", Record: &deployRecord{
+					RecordedAt: "2026-05-02T08:00:00Z", RecordedBy: "carol", Hash: "feedbeefcafe"}},
+				{Key: "order-service/orders.get-order", Record: &deployRecord{
+					RecordedAt: "2026-05-01T12:00:00Z", RecordedBy: "alice", Hash: "abc123def456", Version: 3}},
+			}},
+	}},
+	{Service: "order-service", Envs: []invEnv{
+		{Env: "dev", RecordedAt: "2026-05-02T09:00:00Z", RecordedBy: "erin",
+			Provides: []invItem{{Key: "orders.get-order", Record: &deployRecord{
+				RecordedAt: "2026-05-02T09:00:00Z", RecordedBy: "erin", Hash: "222222222222", Version: 8}}}},
+		{Env: "prod", RecordedAt: "2026-03-01T09:00:00Z", RecordedBy: "bob", Stale: true,
+			Provides: []invItem{{Key: "orders.get-order", Record: &deployRecord{
+				RecordedAt: "2026-03-01T09:00:00Z", RecordedBy: "bob", Hash: "444444444444", Version: 6}}}},
+		{Env: "staging", RecordedAt: "2026-04-28T09:30:00Z", RecordedBy: "bob",
+			Provides: []invItem{{Key: "orders.get-order", Record: &deployRecord{
+				RecordedAt: "2026-04-28T09:30:00Z", RecordedBy: "bob", Hash: "0123456789ab", Version: 7}}}},
+	}},
+	{Service: "recommendation-service", Envs: []invEnv{
+		{Env: "dev", RecordedAt: "2026-05-05T08:00:00Z", RecordedBy: "gale",
+			Provides: []invItem{{Key: "recs.list", Record: &deployRecord{
+				RecordedAt: "2026-05-05T08:00:00Z", RecordedBy: "gale", Hash: "555555555555", Version: 1}}}},
+		// Version-less record: published before version logs existed.
+		{Env: "prod", RecordedAt: "2026-05-06T08:00:00Z", RecordedBy: "gale",
+			Provides: []invItem{{Key: "recs.list", Record: &deployRecord{
+				RecordedAt: "2026-05-06T08:00:00Z", RecordedBy: "gale", Hash: "666666666666"}}}},
+	}},
+	{Service: "web-app", Envs: []invEnv{
+		{Env: "dev", RecordedAt: "2026-05-03T10:00:00Z", RecordedBy: "dana",
+			Consumes: []invItem{
+				{Key: "billing/invoices.get", Record: &deployRecord{
+					RecordedAt: "2026-05-03T10:00:00Z", RecordedBy: "dana", Hash: "777777777777", Version: 2}},
+				{Key: "order-service/orders.get-order", Record: &deployRecord{
+					RecordedAt: "2026-05-03T10:00:00Z", RecordedBy: "dana", Hash: "111111111111", Version: 4}},
+			}},
+		{Env: "prod", RecordedAt: "2026-05-04T10:00:00Z", RecordedBy: "dana",
+			Consumes: []invItem{{Key: "order-service/orders.get-order", Record: &deployRecord{
+				RecordedAt: "2026-05-04T10:00:00Z", RecordedBy: "dana", Hash: "888888888888", Version: 3}}}},
+		{Env: "staging", RecordedAt: "2026-05-05T10:00:00Z", RecordedBy: "dana",
+			Consumes: []invItem{{Key: "order-service/orders.get-order", Record: &deployRecord{
+				RecordedAt: "2026-05-05T10:00:00Z", RecordedBy: "dana", Hash: "999999999999", Version: 3}}}},
+	}},
+}
+
 func TestRenderMatrixMD(t *testing.T) {
 	out := string(renderMatrixMD(matrixFixture, nil))
 	for _, want := range []string{
@@ -99,59 +155,41 @@ func TestRenderMatrixMDPromotions(t *testing.T) {
 }
 
 func TestRenderMatrixHTML(t *testing.T) {
-	out := string(renderMatrixHTML(matrixFixture, nil, nil))
+	out := string(renderMatrixHTML(matrixFixture, nil, nil, nil))
 	for _, want := range []string{
-		`st-INCOMPATIBLE" title="the consumer would fail to read what the provider sends">INCOMPATIBLE</span>`,
-		`<code>order-service/orders.get-order</code>`,
+		// The overview is the no-JS fallback and every major directory is a
+		// fragment-addressed view.
+		`.view:target { display: block; }`,
+		`.view:target ~ #view-overview { display: none; }`,
+		`<section class="view directory" id="view-contracts" data-directory>`,
+		`<section class="view" id="view-services">`,
+		`<section class="view" id="view-overview">`,
+		`<h1>Compatibility overview</h1><p class="verdict">2 failing edges in dev, staging</p>`,
+		`<strong>2</strong><span>deployed blockers</span>`,
+		`<div class="filters" hidden>`,
+		`data-search="order-service orders.get-order" data-status="INCOMPATIBLE"`,
+		`<a href="#c-order-service-orders.get-order"><code>order-service / orders.get-order</code></a>`,
+		// Contract health and its provider ownership are explicit.
+		`<section class="view" id="c-order-service-orders.get-order">`,
+		`<a href="#s-order-service">order-service</a>`,
+		`<span class="detail">Deployed</span><span class="badge st-INCOMPATIBLE"`,
+		`<h3>Environment summary</h3>`,
+		`data-label="environment">staging</td><td data-label="provider version" class="ver"><code title="0123456789ab`,
+		`<h3>Deployed relationships</h3>`,
+		`<a href="#edge-c-order-service-orders.get-order-e2"><code>mobile</code></a>`,
+		// Edge results are shareable pages with findings before secondary data.
+		`<section class="view" id="edge-c-order-service-orders.get-order-e2">`,
+		`<h1>mobile → order-service/orders.get-order</h1>`,
+		`<span>Consumer</span><strong><code>mobile</code></strong>`,
 		"field removed &lt;script&gt;alert(1)&lt;/script&gt;",
-		`<input type="checkbox" id="f-ok" checked>`,
-		`<h2>staging<span class="gsum">1 INCOMPATIBLE · 1 warning · 1 untracked</span></h2>`,
-		`<p class="verdict bad">2 failing edges in dev, staging</p>`,
-		`<section class="group" id="env-staging" data-healthy="false">
-<details open><summary><h2>staging`,
-		`<section class="group" id="env-prod" data-healthy="true">
-<details><summary><h2>prod`,
-		`<button type="button" data-groups="expand">Expand all</button>`,
-		`<button type="button" data-groups="collapse">Collapse all</button>`,
-		`<button type="button" data-groups="collapse-healthy">Collapse healthy</button>`,
-		`var selector = mode === "collapse-healthy"`,
-		`if (target && target.matches(".group")) target.querySelector("details").open = true;`,
-		`<tr class="row-error"><td>web-app</td>`,
-		// The worst staging row opens its detail modal.
-		`<tr class="row-INCOMPATIBLE" data-modal="d-env-staging-0"><td>mobile</td>`,
-		`<th>consumer</th><th>version</th><th>provider / interaction</th><th>version</th>`,
-		`<td class="ver"><code title="abc123def456 · recorded 2026-05-01T12:00:00Z by alice">v3</code></td>`,
-		`<td class="ver"><code title="0123456789ab · recorded 2026-04-28T09:30:00Z by bob">v7</code></td>`,
-		// A version-less record falls back to the hash in the cell.
-		`<td class="ver"><code title="feedbeefcafe · recorded 2026-05-02T08:00:00Z by carol">feedbeefcafe</code></td>`,
-		// Rows without a deploy record on a side leave that version blank.
-		`<td class="ver"></td>`,
-		`<dialog id="d-env-staging-0" aria-labelledby="d-env-staging-0-title">`,
-		`<h3 id="d-env-staging-0-title">mobile → order-service/orders.get-order</h3>`,
-		`<dl class="parties"><div><dt>consumer</dt><dd><code>mobile</code><span class="party-version">version <code>v3</code></span></dd></div><div><dt>provider</dt><dd><code>order-service</code><span class="party-version">version <code>v7</code></span></dd></div>`,
-		`<button aria-label="close" autofocus>✕</button>`,
-		`body.modal-open { overflow: hidden; }`,
-		`document.body.classList.add("modal-open");`,
-		`document.body.classList.remove("modal-open");`,
-		`ev.clientX < box.left || ev.clientX > box.right`,
 		`<code>field-missing</code>`,
-		// Both bodies render side by side; the finding paths are highlighted
-		// on every side where they resolve.
-		`<h4>consumer projection</h4><pre>`,
-		`<h4>provider schema</h4><pre>`,
+		`<details class="disclosure"><summary>Deploy provenance</summary>`,
+		`<details class="disclosure"><summary>Compare schemas</summary>`,
 		`<span class="hl st-warning">    &#34;qty&#34;: {</span>`,
 		`<span class="hl st-INCOMPATIBLE">      &#34;items&#34;: {</span>`,
-		// Descendants of a marked node inherit its highlight.
 		`<span class="hl st-INCOMPATIBLE">          &#34;sku&#34;: {</span>`,
-		// Unmarked lines render as plain text.
-		"<pre>{\n",
-		`consumer version <code>v3</code> · hash <code>abc123def456</code> · recorded 2026-05-01T12:00:00Z by alice`,
-		`provider version <code>v7</code> · hash <code>0123456789ab</code> · recorded 2026-04-28T09:30:00Z by bob`,
-		// The untracked edge has provenance for the recorded side only, and its
-		// version-less record shows the hash once, without a hash suffix.
-		`consumer version <code>feedbeefcafe</code> · recorded 2026-05-02T08:00:00Z by carol`,
-		// Without a pipeline the strip still lists the envs, without arrows.
-		`<nav class="pipeline">`,
+		`recorded <time datetime="2026-05-01T12:00:00Z">01 May 2026, 12:00 UTC</time> by alice`,
+		`<nav class="pipeline" aria-label="Environment pipeline">`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("html output missing %q\n%s", want, out)
@@ -160,95 +198,389 @@ func TestRenderMatrixHTML(t *testing.T) {
 	if strings.Contains(out, "<script>alert(1)") {
 		t.Error("html output contains an unescaped <script> payload")
 	}
-	if strings.Contains(out, "data-exp") {
-		t.Error("html output still contains inline expand rows")
+	for _, gone := range []string{"data-modal", "<dialog", `data-href=`} {
+		if strings.Contains(out, gone) {
+			t.Errorf("html output contains obsolete interaction marker %q", gone)
+		}
 	}
 	if strings.Contains(out, `<span class="parrow`) {
 		t.Error("html output must not render promotion arrows without a pipeline")
 	}
-	if strings.Contains(out, "promotion") {
-		t.Error("html output must omit the promotion sections without a pipeline")
+	if strings.Contains(out, "<th>promotion</th>") {
+		t.Error("html output must omit the promotion column without a pipeline")
 	}
-	if empty := string(renderMatrixHTML(nil, nil, nil)); !strings.Contains(empty, "no deploy records") {
-		t.Error("empty matrix html missing the no-deploy-records row")
+	if strings.Contains(out, "<h3>promotion") {
+		t.Error("html output must omit the promotion sections without promotion checks")
+	}
+	if empty := string(renderMatrixHTML(nil, nil, nil, nil)); !strings.Contains(empty, "no deploy records") {
+		t.Error("empty matrix html missing the no-deploy-records card")
 	} else if strings.Contains(empty, `<nav class="pipeline">`) {
 		t.Error("empty matrix html must not render a pipeline strip")
 	}
 }
 
 func TestRenderMatrixHTMLPromotions(t *testing.T) {
-	out := string(renderMatrixHTML(matrixFixture, promoFixture, nil))
+	out := string(renderMatrixHTML(matrixFixture, promoFixture, []string{"dev", "staging", "prod"}, nil))
 	for _, want := range []string{
-		`<h2>promotion dev → staging<span class="gsum">1 INCOMPATIBLE · 1 ok</span></h2>`,
-		`<h2>promotion staging → prod<span class="gsum">1 untracked</span></h2>`,
-		`<section class="group" id="promo-dev---staging" data-healthy="false">
-<details open><summary><h2>promotion dev → staging`,
-		`<section class="group" id="promo-staging---prod" data-healthy="true">
-<details><summary><h2>promotion staging → prod`,
-		`<tr class="row-INCOMPATIBLE" data-modal="d-promo-dev---staging-0"><td>order-service</td><td><code>provides orders.get-order ⇐ web-app</code></td>`,
+		`<strong>2</strong><span>promotion issues</span>`,
+		// Deployed and promotion status are separate on contract summaries.
+		`data-label="deployed health"><span class="badge st-INCOMPATIBLE"`,
+		`data-label="promotion readiness"><span class="badge st-INCOMPATIBLE"`,
+		`<span class="detail">Deployed</span><span class="badge st-INCOMPATIBLE"`,
+		`<span class="detail">Promotion</span><span class="badge st-INCOMPATIBLE"`,
+		`data-label="promotion"><span class="detail">to staging</span>`,
+		`<div class="detail">1 untracked</div>`,
+		`<h3>Promotion checks</h3>`,
+		`<a href="#promotion-c-order-service-orders.get-order-p0"><code>provides orders.get-order ⇐ web-app</code></a>`,
 		"parser requires field &lt;b&gt;a&lt;/b&gt;",
-		"· 3 promotion checks</p>",
-		`<h3 id="d-promo-dev---staging-0-title">web-app → order-service/orders.get-order</h3>`,
-		`<dl class="parties"><div><dt>consumer</dt><dd><code>web-app</code><span class="party-version">version <code>v4</code></span></dd></div><div><dt>provider</dt><dd><code>order-service</code><span class="party-version">version <code>v8</code></span></dd></div>`,
+		`<section class="view" id="promotion-c-order-service-orders.get-order-p0">`,
+		`<a class="back-link" href="#c-order-service-orders.get-order" aria-label="Back to contract" title="Back to contract"><span aria-hidden="true">←</span></a>`,
+		`<p class="eyebrow">Promotion compatibility</p><h1>web-app → order-service/orders.get-order</h1>`,
 		`<h4>target consumer · staging</h4>`,
 		`<h4>candidate provider · dev</h4>`,
 		`provider version <code>v8</code> · hash <code>222222222222</code>`,
-		// The enriched untracked row opens a modal with its findings.
-		`<tr class="row-untracked" data-modal="d-promo-staging---prod-0"><td>order-service</td>`,
-		`<dialog id="d-promo-staging---prod-0" aria-labelledby="d-promo-staging---prod-0-title">`,
-		`<h3 id="d-promo-staging---prod-0-title">order-service → billing/invoices.get</h3>`,
-		`<dl class="parties"><div><dt>consumer</dt><dd><code>order-service</code><span class="party-version">version <code>v2</code></span></dd></div><div><dt>provider</dt><dd><code>billing</code><span class="party-version">version unavailable</span></dd></div>`,
+		`<section class="view" id="promotion-c-billing-invoices.get-p0">`,
+		`<h1>order-service → billing/invoices.get</h1>`,
 		`<h4>candidate consumer · staging</h4>`,
 		`<h4>target provider · prod</h4>`,
 		`consumer version <code>v2</code> · hash <code>333333333333</code>`,
 		`<code>untracked-provider</code>`,
+		`<span class="parrow pa-INCOMPATIBLE" title="promote dev → staging: 1 INCOMPATIBLE · 1 ok">→</span>`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("html output missing %q\n%s", want, out)
 		}
 	}
-	// The in-sync rollup row has no check cell.
-	if !strings.Contains(out, `<tr class="row-ok"><td>web-app</td><td></td>`) {
-		t.Error("html output missing the empty-check in-sync row")
-	}
-	// Chip counts include promotion edges: 2 ok = 1 deployed + 1 in-sync.
-	if !strings.Contains(out, ">2 ok</label>") {
-		t.Error("chip counts must include promotion edges")
-	}
-	// Promotion rows within a pair render worst-status-first.
-	if strings.Index(out, `row-INCOMPATIBLE"><td>order-service`) > strings.Index(out, `row-ok"><td>web-app</td><td></td>`) {
-		t.Error("promotion rows are not worst-status-first")
+	// The directory is worst-first by the combined attention status while the
+	// two displayed dimensions remain separate.
+	worst := strings.Index(out, `data-search="order-service orders.get-order"`)
+	next := strings.Index(out, `data-search="billing invoices.get"`)
+	if !(worst >= 0 && next >= 0 && worst < next) {
+		t.Errorf("landing order wrong: order-service=%d billing=%d", worst, next)
 	}
 }
 
 func TestRenderMatrixHTMLPipeline(t *testing.T) {
-	out := string(renderMatrixHTML(matrixFixture, promoFixture, []string{"dev", "staging", "qa"}))
+	out := string(renderMatrixHTML(matrixFixture, promoFixture, []string{"dev", "staging", "qa"}, nil))
 	for _, want := range []string{
-		`<a class="pnode" href="#env-dev">`,
-		`<span class="badge st-error">dev</span>`,
-		`<a class="pnode" href="#env-staging">`,
+		`<strong>dev</strong><span class="psum">1 error · 1 ok</span>`,
+		`<strong>staging</strong><span class="psum">1 INCOMPATIBLE · 1 warning · 1 untracked</span>`,
 		`<span class="parrow pa-INCOMPATIBLE" title="promote dev → staging: 1 INCOMPATIBLE · 1 ok">→</span>`,
 		`<span class="parrow pa-untracked" title="promote staging → qa: no promotion checks">→</span>`,
-		// qa has no deploy records: a non-link node.
-		`<span class="pnode"><span class="badge st-untracked">qa</span><span class="psum">no deploy records</span></span>`,
+		`<strong>qa</strong><span class="psum">no deploy records</span>`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("html output missing %q\n%s", want, out)
 		}
 	}
-	// Pipeline order first, then envs outside the pipeline.
-	dev, staging := strings.Index(out, `href="#env-dev"`), strings.Index(out, `href="#env-staging"`)
-	qa, prod := strings.Index(out, `>qa</span>`), strings.Index(out, `href="#env-prod"`)
+	overview := out[strings.Index(out, `id="view-overview"`):]
+	dev := strings.Index(overview, `<strong>dev</strong><span class="psum">`)
+	staging := strings.Index(overview, `<strong>staging</strong><span class="psum">`)
+	qa := strings.Index(overview, `<strong>qa</strong><span class="psum">`)
+	prod := strings.Index(overview, `<strong>prod</strong><span class="psum">`)
 	if !(dev < staging && staging < qa && qa < prod) {
 		t.Errorf("strip order wrong: dev=%d staging=%d qa=%d prod=%d", dev, staging, qa, prod)
 	}
-	// Environment tables follow the configured pipeline too; environments
-	// outside it come afterward in deterministic alphabetical order.
-	dev = strings.Index(out, `id="env-dev"`)
-	staging = strings.Index(out, `id="env-staging"`)
-	prod = strings.Index(out, `id="env-prod"`)
-	if !(dev < staging && staging < prod) {
-		t.Errorf("environment table order wrong: dev=%d staging=%d prod=%d", dev, staging, prod)
+	dev = strings.Index(out, `data-label="environment">dev</td>`)
+	staging = strings.Index(out, `data-label="environment">staging</td>`)
+	prod = strings.Index(out, `data-label="environment">prod</td>`)
+	if !(dev >= 0 && dev < staging && staging < prod) {
+		t.Errorf("environments table order wrong: dev=%d staging=%d prod=%d", dev, staging, prod)
+	}
+}
+
+func TestPromoRef(t *testing.T) {
+	tests := []struct {
+		edge promoEdge
+		want contractRef
+		ok   bool
+	}{
+		{promoEdge{Side: "provides", Service: "order-service", Counterpart: "web-app", Interaction: "orders.get"},
+			contractRef{"order-service", "orders.get"}, true},
+		{promoEdge{Side: "consumes", Service: "web-app", Counterpart: "order-service", Interaction: "orders.get"},
+			contractRef{"order-service", "orders.get"}, true},
+		// Per-service rollup rows carry no interaction and match no contract.
+		{promoEdge{Service: "web-app", InSync: true}, contractRef{}, false},
+	}
+	for _, tt := range tests {
+		if got, ok := promoRef(tt.edge); got != tt.want || ok != tt.ok {
+			t.Errorf("promoRef(%+v) = %v, %v; want %v, %v", tt.edge, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestContractSlugs(t *testing.T) {
+	refs := []contractRef{{"a-b", "c"}, {"a", "b-c"}, {"svc", "weird interaction!"}}
+	slugs := contractSlugs(refs)
+	if slugs[refs[0]] != "c-a-b-c" || slugs[refs[1]] != "c-a-b-c-2" {
+		t.Errorf("colliding refs not deduped deterministically: %v", slugs)
+	}
+	idSafe := regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
+	for ref, s := range slugs {
+		if !idSafe.MatchString(s) {
+			t.Errorf("slug %q for %v is not DOM-id safe", s, ref)
+		}
+	}
+}
+
+func TestPromoCell(t *testing.T) {
+	rollup := promoEdge{From: "dev", To: "staging", Service: "billing", Status: matrixStatusOK, InSync: true,
+		Detail: "in sync: the same contracts are already deployed in staging"}
+	matched := []promoEdge{
+		{From: "dev", To: "staging", Status: matrixStatusWarning},
+		{From: "dev", To: "staging", Status: matrixStatusOK},
+		{From: "staging", To: "prod", Status: matrixStatusIncompatible},
+	}
+	if st, detail := promoCell(matched, nil, "billing", "dev", "staging"); st != matrixStatusWarning || detail != "1 warning · 1 ok" {
+		t.Errorf("matched checks: got %s %q", st, detail)
+	}
+	// The in-sync collapse leaves only the provider's per-service row to
+	// speak for the contract.
+	if st, detail := promoCell(nil, []promoEdge{rollup}, "billing", "dev", "staging"); st != matrixStatusOK || !strings.Contains(detail, "in sync") {
+		t.Errorf("rollup fallback: got %s %q", st, detail)
+	}
+	// A rollup for a different service says nothing about this contract.
+	if st, detail := promoCell(nil, []promoEdge{rollup}, "order-service", "dev", "staging"); st != matrixStatusUntracked || detail != "no promotion checks" {
+		t.Errorf("no checks: got %s %q", st, detail)
+	}
+}
+
+func TestRenderMatrixHTMLServices(t *testing.T) {
+	out := string(renderMatrixHTML(matrixFixture, nil, nil, inventoryFixture))
+	for _, want := range []string{
+		`<p class="sub">3 contracts · 5 services · 3 envs</p>`,
+		`<nav class="topnav" aria-label="Primary"><a href="#view-overview">Overview</a><a href="#view-contracts">Contracts</a><a href="#view-services" aria-current="page">Services</a></nav>`,
+		`<section class="view" id="view-services">`,
+		`data-search="mobile consumer" data-status="INCOMPATIBLE"`,
+		`data-search="order-service provider" data-status="INCOMPATIBLE"`,
+		`data-search="web-app consumer" data-status="error"`,
+		`<section class="view" id="s-recommendation-service">`,
+		`<nav class="breadcrumbs" aria-label="Breadcrumb"><a class="back-link" href="#view-services" aria-label="Back to services" title="Back to services"><span aria-hidden="true">←</span></a><a href="#view-services">Services</a><span>/</span><span>recommendation-service</span></nav>`,
+		`<h1><code>recommendation-service</code></h1>`,
+		`<p class="sub">provider · 1 provided interaction · 0 consumed contracts</p>`,
+		`<time datetime="2026-05-05T08:00:00Z">05 May 2026, 08:00 UTC</time>`,
+		`<a href="#c-recommendation-service-recs.list"><code>recs.list</code></a>`,
+		`<span class="badge st-warning">stale</span>`,
+		// A consumer badge links to its exact edge and carries only that
+		// consumer's status, not the contract-wide worst status.
+		`<a class="badge st-warning" href="#edge-c-order-service-orders.get-order-e3" title="999999999999 · recorded 2026-05-05T10:00:00Z by dana">staging v3</a>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("html output missing %q\n%s", want, out)
+		}
+	}
+	// The sibling CSS depends on the overview being the last view.
+	services, overview := strings.Index(out, `id="view-services"`), strings.Index(out, `id="view-overview"`)
+	if !(services >= 0 && overview >= 0 && services < overview) {
+		t.Errorf("view order wrong: services=%d overview=%d", services, overview)
+	}
+	// Services rows are worst-first then name.
+	mobile := strings.Index(out, `data-search="mobile consumer"`)
+	orderSvc := strings.Index(out, `data-search="order-service provider"`)
+	webApp := strings.Index(out, `data-search="web-app consumer"`)
+	recs := strings.Index(out, `data-search="recommendation-service provider"`)
+	if !(mobile < orderSvc && orderSvc < webApp && webApp < recs) {
+		t.Errorf("services order wrong: mobile=%d order-service=%d web-app=%d recs=%d", mobile, orderSvc, webApp, recs)
+	}
+	if n := strings.Count(out, `<section class="view" id="edge-`); n != len(matrixFixture) {
+		t.Errorf("edge detail views = %d, want %d", n, len(matrixFixture))
+	}
+	start := strings.Index(out, `<section class="view" id="s-order-service">`)
+	end := start + strings.Index(out[start:], `</section>`)
+	service := out[start:end]
+	for _, want := range []string{
+		`<h3>Deployed issues</h3>`,
+		`data-label="where">staging</td><td data-label="role">provider</td>`,
+		`<a href="#edge-c-order-service-orders.get-order-e2"><code>mobile → order-service/orders.get-order</code></a>`,
+		`field removed &lt;script&gt;alert(1)&lt;/script&gt;`,
+	} {
+		if !strings.Contains(service, want) {
+			t.Errorf("order-service view missing %q\n%s", want, service)
+		}
+	}
+}
+
+func TestRenderMatrixHTMLServiceFiltersUseServiceStatuses(t *testing.T) {
+	record := &deployRecord{Hash: "aaaaaaaaaaaa"}
+	edges := []matrixEdge{
+		{Env: "dev", Consumer: "bad-client", Provider: "provider", Interaction: "get", Status: matrixStatusWarning},
+		{Env: "dev", Consumer: "good-client", Provider: "provider", Interaction: "get", Status: matrixStatusOK},
+	}
+	inv := []invService{
+		{Service: "bad-client", Envs: []invEnv{{Env: "dev", Consumes: []invItem{{Key: "provider/get", Record: record}}}}},
+		{Service: "good-client", Envs: []invEnv{{Env: "dev", Consumes: []invItem{{Key: "provider/get", Record: record}}}}},
+		{Service: "provider", Envs: []invEnv{{Env: "dev", Provides: []invItem{{Key: "get", Record: record}}}}},
+	}
+	out := string(renderMatrixHTML(edges, nil, nil, inv))
+	if n := strings.Count(out, `<button type="button" data-status="ok" aria-pressed="true">ok</button>`); n != 1 {
+		t.Errorf("ok filter count = %d, want one service-directory filter", n)
+	}
+}
+
+func TestBuildServicesUsesConsumerSpecificStatus(t *testing.T) {
+	slugs := map[contractRef]string{
+		{"order-service", "orders.get-order"}:   "c-order",
+		{"billing", "invoices.get"}:             "c-billing",
+		{"recommendation-service", "recs.list"}: "c-recs",
+	}
+	details := map[edgeRef]string{
+		{"staging", "web-app", "order-service", "orders.get-order"}: "edge-web-staging",
+	}
+	_, views := buildServices(inventoryFixture, matrixFixture, nil, slugs, details, nil, envLess(nil))
+
+	var web, order *serviceView
+	for i := range views {
+		switch views[i].Service {
+		case "web-app":
+			web = &views[i]
+		case "order-service":
+			order = &views[i]
+		}
+	}
+	if web == nil || order == nil {
+		t.Fatalf("missing service views: web=%v order=%v", web != nil, order != nil)
+	}
+	findEnv := func(rows []svcItemRow, label, env string) svcItemEnv {
+		for _, row := range rows {
+			if row.Label != label {
+				continue
+			}
+			for _, item := range row.Envs {
+				if item.Env == env {
+					return item
+				}
+			}
+		}
+		t.Fatalf("missing %s in %s", label, env)
+		return svcItemEnv{}
+	}
+	consumed := findEnv(web.ConsumeRows, "order-service/orders.get-order", "staging")
+	if consumed.Status != matrixStatusWarning || consumed.DetailSlug != "edge-web-staging" {
+		t.Errorf("web-app staging consume = %+v, want warning with exact edge link", consumed)
+	}
+	provided := findEnv(order.ProvideRows, "orders.get-order", "staging")
+	if provided.Status != matrixStatusIncompatible {
+		t.Errorf("provider aggregate status = %s, want INCOMPATIBLE", provided.Status)
+	}
+}
+
+func TestBuildServiceAttentionIncludesPromotionReason(t *testing.T) {
+	details := map[promoDetailRef]string{
+		{"dev", "staging", "order-service", "provides", "web-app", "orders.get-order"}: "promotion-order",
+	}
+	_, groups, hasChecks := buildServiceAttention("order-service", nil, promoFixture, nil, details,
+		envLess([]string{"dev", "staging", "prod"}))
+	if !hasChecks || len(groups) != 2 {
+		t.Fatalf("promotion groups = %+v, has checks = %v, want two transition groups", groups, hasChecks)
+	}
+	item := groups[0].Rows[0]
+	if groups[0].Label != "dev → staging" || groups[0].Status != matrixStatusIncompatible ||
+		item.Role != "provider" ||
+		item.Relationship != "web-app → order-service/orders.get-order" ||
+		item.Status != matrixStatusIncompatible || item.DetailSlug != "promotion-order" ||
+		!strings.Contains(item.Detail, "parser requires field") {
+		t.Errorf("provider promotion attention = %+v", item)
+	}
+}
+
+func TestRenderMatrixHTMLServicePromotionGroups(t *testing.T) {
+	out := string(renderMatrixHTML(matrixFixture, promoFixture,
+		[]string{"dev", "staging", "prod"}, inventoryFixture))
+	start := strings.Index(out, `<section class="view" id="s-order-service">`)
+	end := start + 1 + strings.Index(out[start+1:], `
+<section class="view"`)
+	service := out[start:end]
+	for _, want := range []string{
+		`<h3>Promotion readiness</h3>`,
+		`<strong>dev → staging</strong><span>1 issue requiring attention</span>`,
+		`aria-label="Blocked: 1 issue requiring attention"`,
+		`<strong>staging → prod</strong><span>1 of 1 check could not be verified</span>`,
+		`aria-label="Unverified: 1 of 1 check could not be verified"`,
+		`<a href="#promotion-c-order-service-orders.get-order-p0"><code>web-app → order-service/orders.get-order</code></a>`,
+		`parser requires field &lt;b&gt;a&lt;/b&gt;`,
+	} {
+		if !strings.Contains(service, want) {
+			t.Errorf("order-service promotion view missing %q\n%s", want, service)
+		}
+	}
+	start = strings.Index(out, `<section class="view" id="s-web-app">`)
+	end = start + 1 + strings.Index(out[start+1:], `
+<section class="view"`)
+	service = out[start:end]
+	for _, want := range []string{
+		`<section class="attention-group is-clear">`,
+		`<strong>dev → staging</strong><span>1 compatibility check passed</span>`,
+		`aria-label="Ready: 1 compatibility check passed"`,
+	} {
+		if !strings.Contains(service, want) {
+			t.Errorf("web-app promotion view missing %q\n%s", want, service)
+		}
+	}
+}
+
+func TestPromotionGroupOutcome(t *testing.T) {
+	tests := []struct {
+		name     string
+		statuses []matrixStatus
+		issues   int
+		status   matrixStatus
+		outcome  string
+		summary  string
+	}{
+		{"ready", []matrixStatus{matrixStatusOK, matrixStatusOK}, 0,
+			matrixStatusOK, "Ready", "All 2 compatibility checks passed"},
+		{"warnings", []matrixStatus{matrixStatusOK, matrixStatusWarning}, 1,
+			matrixStatusWarning, "Ready with warnings", "Compatible with 1 warning"},
+		{"unverified", []matrixStatus{matrixStatusWarning, matrixStatusUntracked}, 2,
+			matrixStatusUntracked, "Unverified", "1 of 2 checks could not be verified"},
+		{"blocked", []matrixStatus{matrixStatusIncompatible, matrixStatusUntracked}, 2,
+			matrixStatusIncompatible, "Blocked", "2 issues requiring attention"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, outcome, summary := promotionGroupOutcome(tt.statuses, tt.issues)
+			if status != tt.status || outcome != tt.outcome || summary != tt.summary {
+				t.Errorf("promotion outcome = %s, %q, %q; want %s, %q, %q",
+					status, outcome, summary, tt.status, tt.outcome, tt.summary)
+			}
+		})
+	}
+}
+
+func TestRenderMatrixHTMLInventoryContract(t *testing.T) {
+	out := string(renderMatrixHTML(matrixFixture, nil, nil, inventoryFixture))
+	for _, want := range []string{
+		// A provider nobody consumes still lands in the contract directory.
+		`data-search="recommendation-service recs.list" data-status="untracked" data-envs="dev prod "`,
+		`<a href="#c-recommendation-service-recs.list"><code>recommendation-service / recs.list</code></a>`,
+		`<section class="view" id="c-recommendation-service-recs.list">`,
+		`<a class="back-link" href="#view-contracts" aria-label="Back to contracts" title="Back to contracts"><span aria-hidden="true">←</span></a>`,
+		`data-label="environment">dev</td><td data-label="provider version" class="ver"><code title="555555555555 · recorded 2026-05-05T08:00:00Z by gale">v1</code>`,
+		`<code title="666666666666 · recorded 2026-05-06T08:00:00Z by gale">666666666666</code>`,
+		`data-label="provider version" class="ver"><code title="aaaaaaaaaaaa · recorded 2026-04-20T10:00:00Z by erin">v5</code>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("html output missing %q\n%s", want, out)
+		}
+	}
+	// No consumer tables on a contract without consumers.
+	start := strings.Index(out, `id="c-recommendation-service-recs.list"`)
+	end := start + strings.Index(out[start:], "</section>")
+	if view := out[start:end]; strings.Contains(view, "<h3>Deployed relationships</h3>") {
+		t.Errorf("consumer-less contract view has a consumers section:\n%s", view)
+	}
+}
+
+func TestServiceSlugs(t *testing.T) {
+	slugs := serviceSlugs([]string{"a-b", "a/b", "svc"})
+	if slugs["a-b"] != "s-a-b" || slugs["a/b"] != "s-a-b-2" || slugs["svc"] != "s-svc" {
+		t.Errorf("colliding names not deduped deterministically: %v", slugs)
+	}
+	idSafe := regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
+	for name, s := range slugs {
+		if !idSafe.MatchString(s) {
+			t.Errorf("slug %q for %q is not DOM-id safe", s, name)
+		}
 	}
 }
 
@@ -323,7 +655,7 @@ func TestRenderMatrixDeterministic(t *testing.T) {
 	if !bytes.Equal(renderMatrixMD(matrixFixture, promoFixture), renderMatrixMD(matrixFixture, promoFixture)) {
 		t.Error("md renderer is not deterministic")
 	}
-	if !bytes.Equal(renderMatrixHTML(matrixFixture, promoFixture, pipeline), renderMatrixHTML(matrixFixture, promoFixture, pipeline)) {
+	if !bytes.Equal(renderMatrixHTML(matrixFixture, promoFixture, pipeline, inventoryFixture), renderMatrixHTML(matrixFixture, promoFixture, pipeline, inventoryFixture)) {
 		t.Error("html renderer is not deterministic")
 	}
 }

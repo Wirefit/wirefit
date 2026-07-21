@@ -367,6 +367,11 @@ func cmdMatrix(args []string) int {
 			return 2
 		}
 	}
+	inv, err := serviceInventory(st, staleBefore)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+		return 2
+	}
 
 	switch *format {
 	case "term":
@@ -375,7 +380,7 @@ func cmdMatrix(args []string) int {
 	case "md":
 		os.Stdout.Write(renderMatrixMD(edges, promos))
 	case "html":
-		os.Stdout.Write(renderMatrixHTML(edges, promos, pipeline))
+		os.Stdout.Write(renderMatrixHTML(edges, promos, pipeline, inv))
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -390,7 +395,7 @@ func cmdMatrix(args []string) int {
 		case ".md":
 			data = renderMatrixMD(edges, promos)
 		case ".html", ".htm":
-			data = renderMatrixHTML(edges, promos, pipeline)
+			data = renderMatrixHTML(edges, promos, pipeline, inv)
 		case ".json":
 			data, _ = json.MarshalIndent(newMatrixDoc(edges, promos), "", "  ")
 			data = append(data, '\n')
@@ -486,6 +491,75 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 		return a.Interaction < b.Interaction
 	})
 	return edges, nil
+}
+
+// invItem is one pinned interaction in a service's deploy record; Key is the
+// interaction id (provides) or "provider/interaction" (consumes).
+type invItem struct {
+	Key    string
+	Record *deployRecord
+}
+
+// invEnv is one service's deploy record in one env, hashes resolved to
+// publish-counter versions. RecordedAt is RFC3339 UTC like deployRecord.
+type invEnv struct {
+	Env                    string
+	RecordedAt, RecordedBy string
+	Stale                  bool
+	Provides, Consumes     []invItem // Key-sorted
+}
+
+// invService is one deploy-recorded service across every env: the service
+// directory's ground truth, independent of who consumes what. Feeds only the
+// HTML report; the --format json document is unchanged.
+type invService struct {
+	Service string
+	Envs    []invEnv // env-name order (st.Envs is sorted)
+}
+
+// serviceInventory walks every env lock so the report can list services and
+// provided interactions that no consumer edge reaches (a provider nobody
+// consumes would otherwise vanish).
+func serviceInventory(st *store.Store, staleBefore time.Time) ([]invService, error) {
+	records := newDeployRecordResolver(st)
+	byName := map[string]*invService{}
+	for _, env := range st.Envs() {
+		lock, err := st.LoadEnvLock(env)
+		if err != nil {
+			return nil, err
+		}
+		for _, svc := range sortedLockKeys(lock) {
+			sl := lock[svc]
+			ie := invEnv{Env: env,
+				RecordedAt: sl.RecordedAt.UTC().Format(time.RFC3339), RecordedBy: sl.RecordedBy,
+				Stale: sl.RecordedAt.Before(staleBefore)}
+			for _, id := range sortedKeys(sl.Provides) {
+				rec, err := records.resolve(svc, sl, "provides/"+id, sl.Provides[id])
+				if err != nil {
+					return nil, err
+				}
+				ie.Provides = append(ie.Provides, invItem{Key: id, Record: rec})
+			}
+			for _, key := range sortedKeys(sl.Consumes) {
+				rec, err := records.resolve(svc, sl, "consumes/"+key, sl.Consumes[key])
+				if err != nil {
+					return nil, err
+				}
+				ie.Consumes = append(ie.Consumes, invItem{Key: key, Record: rec})
+			}
+			s := byName[svc]
+			if s == nil {
+				s = &invService{Service: svc}
+				byName[svc] = s
+			}
+			s.Envs = append(s.Envs, ie)
+		}
+	}
+	inv := make([]invService, 0, len(byName))
+	for _, name := range sortedKeys(byName) {
+		inv = append(inv, *byName[name])
+	}
+	return inv, nil
 }
 
 func cutString(s, sep string) (string, string, bool) {

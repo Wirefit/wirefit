@@ -574,3 +574,60 @@ func TestCanIDeployFromEnv(t *testing.T) {
 		t.Errorf("unrecorded service: exit = %d, want 2", code)
 	}
 }
+
+func TestServiceInventory(t *testing.T) {
+	st := promoRepo(t)
+	chash := blob(t, st, irA)
+	phash := blob(t, st, irAB)
+	saveLock(t, st, "dev", store.EnvLock{
+		"order-service": {RecordedAt: time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC), RecordedBy: "erin",
+			Provides: map[string]string{"orders.get": phash},
+			Consumes: map[string]string{"billing/invoices.get": chash}},
+		"phantom": {RecordedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), RecordedBy: "gale",
+			Provides: map[string]string{"things.list": phash}},
+	})
+	saveLock(t, st, "prod", store.EnvLock{
+		"order-service": {RecordedAt: time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC), RecordedBy: "bob",
+			Provides: map[string]string{"orders.get": phash}},
+	})
+	// The deployed provides hash is the 2nd publish; the consume has no log,
+	// so its record falls back to the hash label.
+	if err := st.SaveVersions("order-service", store.VersionLog{
+		"provides/orders.get": {blob(t, st, irB), phash},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	staleBefore := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	inv, err := serviceInventory(st, staleBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv) != 2 || inv[0].Service != "order-service" || inv[1].Service != "phantom" {
+		t.Fatalf("services = %+v, want order-service, phantom", inv)
+	}
+	os := inv[0]
+	if len(os.Envs) != 2 || os.Envs[0].Env != "dev" || os.Envs[1].Env != "prod" {
+		t.Fatalf("order-service envs = %+v, want dev, prod", os.Envs)
+	}
+	dev := os.Envs[0]
+	if dev.RecordedAt != "2026-05-02T09:00:00Z" || dev.RecordedBy != "erin" || dev.Stale {
+		t.Errorf("dev provenance = %+v", dev)
+	}
+	if len(dev.Provides) != 1 || dev.Provides[0].Key != "orders.get" || dev.Provides[0].Record.Label() != "v2" {
+		t.Errorf("dev provides = %+v, want orders.get v2", dev.Provides)
+	}
+	if len(dev.Consumes) != 1 || dev.Consumes[0].Key != "billing/invoices.get" ||
+		dev.Consumes[0].Record.Label() != shortHash(chash) {
+		t.Errorf("dev consumes = %+v, want billing/invoices.get %s", dev.Consumes, shortHash(chash))
+	}
+	if !inv[1].Envs[0].Stale {
+		t.Error("phantom's old record must be stale")
+	}
+	again, err := serviceInventory(st, staleBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(inv, again) {
+		t.Error("serviceInventory is not deterministic")
+	}
+}
