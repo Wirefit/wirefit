@@ -164,8 +164,8 @@ Exit codes everywhere: **0** ok/warnings · **1** breaking · **2** config/input
 | `wirefit check` | candidate IR vs contracts repo (the PR gate) | `--contracts-repo`, `--ir`, `--overrides`, `--report file.md`, `--format text\|json` |
 | `wirefit publish` | write IR + manifest copy to the contracts repo (merge to main) | `--contracts-repo`, `--no-commit` |
 | `wirefit record-deploy` | pin published contracts as deployed in an env | `--env`, `--contracts-repo` |
-| `wirefit can-i-deploy` | candidate vs what is **deployed** in an env | `--env`, `--ir`, `--stale-days`, `--report` |
-| `wirefit matrix` | org-wide deployed compatibility table | `--format term\|md\|html\|json`, `-o` |
+| `wirefit can-i-deploy` | candidate vs what is **deployed** in an env | `--env`, `--ir`, `--from-env` + `--service` (promotion gate), `--stale-days`, `--report` |
+| `wirefit matrix` | org-wide deployed compatibility table + promotion readiness | `--format term\|md\|html\|json`, `-o`, `--envs` |
 | `wirefit override add` | append a justified, expiring override | `--justification` (required), `--days`, auto-fills from last check |
 | `wirefit extractor-test` | conformance kit for third-party extractors | `--cases`, `--project`, `-- <command>` |
 | `wirefit diff` / `compat` / `hash` | low-level IR plumbing | see `--help` |
@@ -200,6 +200,14 @@ workflow files (Pages enablement, the token secret), is in `CONTRACTS-REPO-SETUP
 wirefit can-i-deploy --env production --contracts-repo contracts/   # gate
 # ... deploy ...
 wirefit record-deploy --env production --contracts-repo contracts/  # record reality
+```
+
+Promotion pipelines (staging → production) gate on what is *recorded on the source
+stage* instead of a local build — no service checkout needed:
+
+```bash
+wirefit can-i-deploy --from-env staging --env production \
+  --service order-service --contracts-repo contracts/
 ```
 
 ---
@@ -361,6 +369,30 @@ wirefit closes this with environment lockfiles in the contracts repo:
 - Counterparts with no deploy record are checked against main and flagged *untracked* —
   never silently green. Records older than `--stale-days` (30) are flagged stale.
 - `matrix` renders the whole org: env × consumer → provider/interaction with ✅/⚠️/🔴.
+  Each side is labeled with its publish counter (`v4`, bumped per interaction whenever
+  `publish` lands changed content, tracked in `contracts/<service>/versions.json`); the
+  content hash stays in the HTML tooltip and the JSON output. Contracts published before
+  the version log existed fall back to the hash label.
+
+### Promotion readiness (stage N → stage N+1)
+
+Declare the promotion order once, in the contracts repo:
+
+```yaml
+# _envs/pipeline.yaml
+schema-version: 1
+envs: [dev, staging, production]
+```
+
+With that file present (or `matrix --envs dev,staging,production` ad hoc), `matrix`
+appends one *promotion* section per adjacent pair: for every service recorded on
+stage N, would the version running **there** be compatible with what runs on stage
+N+1? Services whose recorded hashes already match the next stage show as a single
+*in sync* row when their target-side compatibility is healthy. Existing warnings or
+incompatibilities keep their true status and checks, marked *in sync*, so the report
+never presents an unhealthy target edge as green. A blocked promotion does **not** fail
+`matrix` (exit codes stay about the deployed state); the scriptable gate for one service is
+`can-i-deploy --from-env <stage-N> --env <stage-N+1> --service <name>`.
 
 Run the deploy demo (`run-deploy-demo.sh`) in [wirefit/examples](https://github.com/wirefit/examples) to watch the entire scenario.
 

@@ -123,7 +123,10 @@ wirefit matrix        --contracts-repo ../contracts                             
 ```
 
 `can-i-deploy` blocks a rollout that would break a consumer still live in the target env, even
-when the merge gate is green. `matrix` prints the org-wide deployed-compatibility table.
+when the merge gate is green; with `--from-env staging --service <name>` the candidate is what
+is *recorded on another stage*, gating a promotion without a service checkout. `matrix` prints
+the org-wide deployed-compatibility table, plus per-pair promotion readiness once
+`_envs/pipeline.yaml` (or `--envs dev,staging,prod`) declares the stage order.
 Stored IR (`contracts/**/*.ir.json`, `_blobs/`) is pretty-printed for readability — its content
 hash is over the compact canonical form, so formatting never affects addressing or diffs. A
 re-publish of an unchanged contract is an idempotent no-op.

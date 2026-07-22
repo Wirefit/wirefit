@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/wirefit/wirefit/internal/diff"
@@ -115,6 +116,8 @@ func cmdCanIDeploy(args []string) int {
 	repoDir := fs.String("contracts-repo", "", "path to a contracts repo working copy")
 	env := fs.String("env", "", "target environment")
 	irDir := fs.String("ir", ".wirefit/ir", "candidate IR (from `wirefit extract` at the release commit)")
+	fromEnv := fs.String("from-env", "", "promotion gate: candidate = what is deploy-recorded in this env (--ir is ignored)")
+	service := fs.String("service", "", "with --from-env: the service to promote, so no manifest checkout is needed")
 	staleDays := fs.Int("stale-days", 30, "deploy records older than this are labeled stale")
 	format := fs.String("format", "text", "text|json")
 	reportFile := fs.String("report", "", "also write a markdown report")
@@ -125,9 +128,15 @@ func cmdCanIDeploy(args []string) int {
 		fmt.Fprintln(os.Stderr, "wirefit can-i-deploy: --contracts-repo and --env are required")
 		return 2
 	}
-	m, code := loadManifest(*mf)
-	if code != 0 {
-		return code
+	var cand candidate
+	if *fromEnv == "" {
+		m, code := loadManifest(*mf)
+		if code != 0 {
+			return code
+		}
+		if cand, code = candidateFromIR(m, *irDir); code != 0 {
+			return code
+		}
 	}
 	st, err := store.Open(*repoDir)
 	if err != nil {
@@ -139,143 +148,51 @@ func cmdCanIDeploy(args []string) int {
 		fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
 		return 2
 	}
+	if *fromEnv != "" {
+		// Promotion gate: the candidate is what already runs in --from-env.
+		// Directions and strictness then come from the published manifest,
+		// not a local checkout (a deploy pipeline has no service repo).
+		svc := *service
+		if svc == "" {
+			m, code := loadManifest(*mf)
+			if code != 0 {
+				return code
+			}
+			svc = m.Service
+		}
+		fromLock, err := st.LoadEnvLock(*fromEnv)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
+			return 2
+		}
+		sl, ok := fromLock[svc]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "wirefit can-i-deploy: %s has no deploy record in %s; run `wirefit record-deploy` there first\n", svc, *fromEnv)
+			return 2
+		}
+		if cand, err = candidateFromLock(st, svc, sl); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
+			return 2
+		}
+	}
 
 	staleBefore := time.Now().Add(-time.Duration(*staleDays) * 24 * time.Hour)
-	strictOf := func(svc string) bool {
-		if sm, err := st.ServiceManifest(svc); err == nil && sm != nil {
-			return sm.RejectsUnknown()
-		}
-		return false
+	drs, err := evalDeploy(st, cand, *env, lock, staleBefore, *staleDays)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
+		return 2
 	}
-	dirOf := func(provider, id string) (diff.Direction, bool) {
-		pm, err := st.ServiceManifest(provider)
-		if err != nil || pm == nil {
-			return "", false
-		}
-		for _, p := range pm.Provides {
-			if p.ID == id {
-				d, err := diff.ParseDirection(p.Direction)
-				return d, err == nil
-			}
-		}
-		return "", false
-	}
-
 	worst := 0
 	results := map[string]*diff.Result{}
-	bump := func(key string, r *diff.Result) {
-		results[key] = r
-		if r.ExitCode() > worst {
-			worst = r.ExitCode()
-		}
-	}
-
-	// Provider side: does my candidate still satisfy every DEPLOYED consumer?
-	for _, p := range m.Provides {
-		dir, err := diff.ParseDirection(p.Direction)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
+	for _, dr := range drs {
+		if dr.err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", dr.err)
 			return 2
 		}
-		candidate, err := ir.Load(filepath.Join(*irDir, "provides", p.ID+".ir.json"))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit can-i-deploy: missing candidate IR for %s; run `wirefit extract` first (%v)\n", p.ID, err)
-			return 2
+		results[canIDeployLabel(dr, *env)] = dr.res
+		if dr.res.ExitCode() > worst {
+			worst = dr.res.ExitCode()
 		}
-		// Consumers registered at main, for untracked detection (PRD 4.4).
-		mainConsumers, err := st.ConsumersOf(m.Service, p.ID)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
-			return 2
-		}
-		for svc, sl := range lock {
-			if svc == m.Service {
-				continue
-			}
-			hash, ok := sl.Consumes[m.Service+"/"+p.ID]
-			if !ok {
-				continue
-			}
-			proj, err := st.ReadBlob(hash)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
-				return 2
-			}
-			r := diff.Compat(candidate, proj, diff.CompatOptions{Direction: dir, StrictParser: strictOf(svc)})
-			if sl.RecordedAt.Before(staleBefore) {
-				r.Findings = append(r.Findings, diff.Finding{
-					Class: diff.Warning, Rule: "stale-deploy-record", Path: "$",
-					Message: fmt.Sprintf("deploy record from %s is older than %d days; re-record to trust this result",
-						sl.RecordedAt.Format("2006-01-02"), *staleDays),
-				})
-			}
-			delete(mainConsumers, svc)
-			bump(fmt.Sprintf("provides %s ⇐ %s@%s", p.ID, svc, *env), r)
-		}
-		// Registered at main but never deploy-recorded: never silently green.
-		for svc, c := range mainConsumers {
-			r := diff.Compat(candidate, c.Schema, diff.CompatOptions{Direction: dir, StrictParser: c.RejectUnknown})
-			r.Findings = append(r.Findings, diff.Finding{
-				Class: diff.Warning, Rule: "untracked-consumer", Path: "$",
-				Message: fmt.Sprintf("%s has no deploy record in %s; checked against its main-branch usage instead", svc, *env),
-			})
-			bump(fmt.Sprintf("provides %s ⇐ %s (untracked)", p.ID, svc), r)
-		}
-	}
-
-	// Consumer side: does the DEPLOYED provider satisfy my candidate expectations?
-	for _, c := range m.Consumes {
-		mine, err := ir.Load(filepath.Join(*irDir, "consumes", c.Provider, c.ID+".ir.json"))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit can-i-deploy: missing candidate IR for consumed %s/%s (%v)\n", c.Provider, c.ID, err)
-			return 2
-		}
-		dir, ok := dirOf(c.Provider, c.ID)
-		if !ok {
-			bump("consumes "+c.Provider+"/"+c.ID, &diff.Result{Findings: []diff.Finding{{
-				Class: diff.Warning, Rule: "provider-unpublished", Path: "$",
-				Message: "provider has not published this interaction",
-			}}})
-			continue
-		}
-		strict := m.RejectsUnknown()
-		if dir == diff.C2P {
-			strict = strictOf(c.Provider)
-		}
-		var provIR *ir.Schema
-		label := fmt.Sprintf("consumes %s/%s @%s", c.Provider, c.ID, *env)
-		var extra *diff.Finding
-		if sl, ok := lock[c.Provider]; ok {
-			if hash, ok := sl.Provides[c.ID]; ok {
-				provIR, err = st.ReadBlob(hash)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
-					return 2
-				}
-				if sl.RecordedAt.Before(staleBefore) {
-					extra = &diff.Finding{Class: diff.Warning, Rule: "stale-deploy-record", Path: "$",
-						Message: fmt.Sprintf("provider deploy record from %s is older than %d days", sl.RecordedAt.Format("2006-01-02"), *staleDays)}
-				}
-			}
-		}
-		if provIR == nil {
-			provIR, ok, err = st.ProviderIR(c.Provider, c.ID)
-			if err != nil || !ok {
-				bump(label, &diff.Result{Findings: []diff.Finding{{
-					Class: diff.Warning, Rule: "untracked-provider", Path: "$",
-					Message: "provider has neither a deploy record nor a published schema",
-				}}})
-				continue
-			}
-			label = fmt.Sprintf("consumes %s/%s (untracked)", c.Provider, c.ID)
-			extra = &diff.Finding{Class: diff.Warning, Rule: "untracked-provider", Path: "$",
-				Message: fmt.Sprintf("%s has no deploy record in %s; checked against its main-branch schema instead", c.Provider, *env)}
-		}
-		r := diff.Compat(provIR, mine, diff.CompatOptions{Direction: dir, StrictParser: strict})
-		if extra != nil {
-			r.Findings = append(r.Findings, *extra)
-		}
-		bump(label, r)
 	}
 
 	if *reportFile != "" {
@@ -310,6 +227,72 @@ type matrixEdge struct {
 	Env, Consumer, Provider, Interaction string
 	Status                               matrixStatus
 	Detail                               string
+	// Findings and the deploy records feed the HTML detail view; Detail stays
+	// the one-line summary so term/md output is unchanged.
+	Findings                       []diff.Finding `json:",omitempty"`
+	ConsumerRecord, ProviderRecord *deployRecord  `json:",omitempty"`
+	// ConsumerBody/ProviderBody feed the HTML modal's side-by-side view; kept
+	// out of the --format json contract (the blobs are available via the store).
+	ConsumerBody, ProviderBody *ir.Schema `json:"-"`
+}
+
+// deployRecord is one side's deploy-record provenance, surfaced by the HTML
+// detail view; additive `--format json` fields.
+type deployRecord struct {
+	RecordedAt string // RFC3339 UTC, straight from the stored lock (stable, NF3)
+	RecordedBy string
+	Hash       string // first 12 hex of the sha256 blob hash
+	Version    int    `json:",omitempty"` // publish counter; 0 when unknown (published before version logs)
+}
+
+// Label is the display form of the deployed version: the publish counter when
+// known, the content hash for records from before version logs existed.
+func (r *deployRecord) Label() string {
+	if r.Version > 0 {
+		return fmt.Sprintf("v%d", r.Version)
+	}
+	return r.Hash
+}
+
+func shortHash(h string) string {
+	h = strings.TrimPrefix(h, "sha256:")
+	if len(h) > 12 {
+		h = h[:12]
+	}
+	return h
+}
+
+func newDeployRecord(sl *store.ServiceLock, hash string, ver int) *deployRecord {
+	return &deployRecord{
+		RecordedAt: sl.RecordedAt.UTC().Format(time.RFC3339),
+		RecordedBy: sl.RecordedBy,
+		Hash:       shortHash(hash),
+		Version:    ver,
+	}
+}
+
+type deployRecordResolver struct {
+	st   *store.Store
+	logs map[string]store.VersionLog
+}
+
+func newDeployRecordResolver(st *store.Store) *deployRecordResolver {
+	return &deployRecordResolver{st: st, logs: map[string]store.VersionLog{}}
+}
+
+func (r *deployRecordResolver) resolve(service string, sl *store.ServiceLock, ref, hash string) (*deployRecord, error) {
+	if sl == nil || hash == "" {
+		return nil, nil
+	}
+	v, ok := r.logs[service]
+	if !ok {
+		var err error
+		if v, err = r.st.LoadVersions(service); err != nil {
+			return nil, err
+		}
+		r.logs[service] = v
+	}
+	return newDeployRecord(sl, hash, v.Resolve(ref, hash)), nil
 }
 
 type matrixStatus string
@@ -322,10 +305,29 @@ const (
 	matrixStatusError        matrixStatus = "error"
 )
 
+// matrixDoc is the `matrix --format json` document: the within-env edges
+// plus the promotion checks (empty without a pipeline).
+type matrixDoc struct {
+	Deployed   []matrixEdge `json:"deployed"`
+	Promotions []promoEdge  `json:"promotions"`
+}
+
+func newMatrixDoc(edges []matrixEdge, promos []promoEdge) matrixDoc {
+	// nil slices marshal as null; the contract is always two arrays.
+	if edges == nil {
+		edges = []matrixEdge{}
+	}
+	if promos == nil {
+		promos = []promoEdge{}
+	}
+	return matrixDoc{Deployed: edges, Promotions: promos}
+}
+
 func cmdMatrix(args []string) int {
 	fs := flag.NewFlagSet("matrix", flag.ContinueOnError)
 	repoDir := fs.String("contracts-repo", "", "path to a contracts repo working copy")
 	staleDays := fs.Int("stale-days", 30, "deploy records older than this are labeled stale")
+	envsFlag := fs.String("envs", "", "comma-separated promotion order (overrides _envs/pipeline.yaml)")
 	format := fs.String("format", "term", "term|md|html|json")
 	out := fs.String("o", "", "also write the matrix to this file (.md, .html or .json)")
 	if fs.Parse(args) != nil {
@@ -346,18 +348,43 @@ func cmdMatrix(args []string) int {
 		fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
 		return 2
 	}
+	pipeline, err := st.LoadPipeline()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+		return 2
+	}
+	if *envsFlag != "" {
+		pipeline = strings.Split(*envsFlag, ",")
+		if err := store.ValidatePipelineEnvs(pipeline); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit matrix: --envs:", err)
+			return 2
+		}
+	}
+	var promos []promoEdge
+	if len(pipeline) > 0 {
+		if promos, err = promoEdges(st, pipeline, staleBefore, *staleDays); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+			return 2
+		}
+	}
+	inv, err := serviceInventory(st, staleBefore)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+		return 2
+	}
 
 	switch *format {
 	case "term":
 		printMatrixTerm(edges)
+		printPromoTerm(promos)
 	case "md":
-		os.Stdout.Write(renderMatrixMD(edges))
+		os.Stdout.Write(renderMatrixMD(edges, promos))
 	case "html":
-		os.Stdout.Write(renderMatrixHTML(edges))
+		os.Stdout.Write(renderMatrixHTML(edges, promos, pipeline, inv))
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(edges)
+		_ = enc.Encode(newMatrixDoc(edges, promos))
 	default:
 		fmt.Fprintf(os.Stderr, "wirefit matrix: unknown format %q (term|md|html|json)\n", *format)
 		return 2
@@ -366,11 +393,11 @@ func cmdMatrix(args []string) int {
 		var data []byte
 		switch filepath.Ext(*out) {
 		case ".md":
-			data = renderMatrixMD(edges)
+			data = renderMatrixMD(edges, promos)
 		case ".html", ".htm":
-			data = renderMatrixHTML(edges)
+			data = renderMatrixHTML(edges, promos, pipeline, inv)
 		case ".json":
-			data, _ = json.MarshalIndent(edges, "", "  ")
+			data, _ = json.MarshalIndent(newMatrixDoc(edges, promos), "", "  ")
 			data = append(data, '\n')
 		default:
 			fmt.Fprintf(os.Stderr, "wirefit matrix: cannot infer format for %s; use a .md, .html or .json extension\n", *out)
@@ -390,6 +417,7 @@ func cmdMatrix(args []string) int {
 }
 
 func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
+	records := newDeployRecordResolver(st)
 	var edges []matrixEdge
 	for _, env := range st.Envs() {
 		lock, err := st.LoadEnvLock(env)
@@ -399,7 +427,12 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 		for consumer, sl := range lock {
 			for key, chash := range sl.Consumes {
 				provider, id, _ := cutString(key, "/")
-				e := matrixEdge{Env: env, Consumer: consumer, Provider: provider, Interaction: id}
+				consumerRecord, err := records.resolve(consumer, sl, "consumes/"+key, chash)
+				if err != nil {
+					return nil, err
+				}
+				e := matrixEdge{Env: env, Consumer: consumer, Provider: provider, Interaction: id,
+					ConsumerRecord: consumerRecord}
 				psl, ok := lock[provider]
 				var phash string
 				if ok {
@@ -417,21 +450,17 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 					edges = append(edges, e)
 					continue
 				}
+				e.ConsumerBody, e.ProviderBody = proj, prov
+				e.ProviderRecord, err = records.resolve(provider, psl, "provides/"+id, phash)
+				if err != nil {
+					return nil, err
+				}
 				dir := diff.P2C
-				if pm, err := st.ServiceManifest(provider); err == nil && pm != nil {
-					for _, p := range pm.Provides {
-						if p.ID == id {
-							if d, err := diff.ParseDirection(p.Direction); err == nil {
-								dir = d
-							}
-						}
-					}
+				if d, ok := dirOf(st, provider, id); ok {
+					dir = d
 				}
-				strict := false
-				if cm, err := st.ServiceManifest(consumer); err == nil && cm != nil {
-					strict = cm.RejectsUnknown()
-				}
-				r := diff.Compat(prov, proj, diff.CompatOptions{Direction: dir, StrictParser: strict})
+				r := diff.Compat(prov, proj, diff.CompatOptions{Direction: dir, StrictParser: strictOf(st, consumer)})
+				e.Findings = r.Findings
 				switch r.Max() {
 				case diff.Breaking:
 					e.Status, e.Detail = matrixStatusIncompatible, r.Findings[0].Message
@@ -462,6 +491,75 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 		return a.Interaction < b.Interaction
 	})
 	return edges, nil
+}
+
+// invItem is one pinned interaction in a service's deploy record; Key is the
+// interaction id (provides) or "provider/interaction" (consumes).
+type invItem struct {
+	Key    string
+	Record *deployRecord
+}
+
+// invEnv is one service's deploy record in one env, hashes resolved to
+// publish-counter versions. RecordedAt is RFC3339 UTC like deployRecord.
+type invEnv struct {
+	Env                    string
+	RecordedAt, RecordedBy string
+	Stale                  bool
+	Provides, Consumes     []invItem // Key-sorted
+}
+
+// invService is one deploy-recorded service across every env: the service
+// directory's ground truth, independent of who consumes what. Feeds only the
+// HTML report; the --format json document is unchanged.
+type invService struct {
+	Service string
+	Envs    []invEnv // env-name order (st.Envs is sorted)
+}
+
+// serviceInventory walks every env lock so the report can list services and
+// provided interactions that no consumer edge reaches (a provider nobody
+// consumes would otherwise vanish).
+func serviceInventory(st *store.Store, staleBefore time.Time) ([]invService, error) {
+	records := newDeployRecordResolver(st)
+	byName := map[string]*invService{}
+	for _, env := range st.Envs() {
+		lock, err := st.LoadEnvLock(env)
+		if err != nil {
+			return nil, err
+		}
+		for _, svc := range sortedLockKeys(lock) {
+			sl := lock[svc]
+			ie := invEnv{Env: env,
+				RecordedAt: sl.RecordedAt.UTC().Format(time.RFC3339), RecordedBy: sl.RecordedBy,
+				Stale: sl.RecordedAt.Before(staleBefore)}
+			for _, id := range sortedKeys(sl.Provides) {
+				rec, err := records.resolve(svc, sl, "provides/"+id, sl.Provides[id])
+				if err != nil {
+					return nil, err
+				}
+				ie.Provides = append(ie.Provides, invItem{Key: id, Record: rec})
+			}
+			for _, key := range sortedKeys(sl.Consumes) {
+				rec, err := records.resolve(svc, sl, "consumes/"+key, sl.Consumes[key])
+				if err != nil {
+					return nil, err
+				}
+				ie.Consumes = append(ie.Consumes, invItem{Key: key, Record: rec})
+			}
+			s := byName[svc]
+			if s == nil {
+				s = &invService{Service: svc}
+				byName[svc] = s
+			}
+			s.Envs = append(s.Envs, ie)
+		}
+	}
+	inv := make([]invService, 0, len(byName))
+	for _, name := range sortedKeys(byName) {
+		inv = append(inv, *byName[name])
+	}
+	return inv, nil
 }
 
 func cutString(s, sep string) (string, string, bool) {

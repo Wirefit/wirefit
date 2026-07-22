@@ -48,6 +48,21 @@ jobs:
           token: ${{ github.token }}
 ```
 
+### Promotion order (optional)
+
+To make the matrix page answer "would what runs on stage N survive stage N+1?",
+commit the promotion order once:
+
+```yaml
+# _envs/pipeline.yaml
+schema-version: 1
+envs: [dev, staging, production]
+```
+
+The page then grows one *promotion* section per adjacent pair, and deploy pipelines
+can gate a promotion with `wirefit can-i-deploy --from-env staging --env production
+--service <name>`.
+
 Notes:
 - The workflow runs inside the contracts repo, so the built-in `github.token` is enough.
   No PAT, no secret. (The snippet in `actions/pages/action.yml` shows
