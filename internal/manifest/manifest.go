@@ -64,6 +64,16 @@ var (
 	mapperRe  = regexp.MustCompile(`^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)+#[A-Za-z_$][\w$]*$`)
 )
 
+// ValidateServiceName checks a service name before it is used as a contracts
+// repository path component. Keeping this rule exported lets CLI flags use
+// the exact same validation as manifest service names.
+func ValidateServiceName(name string) error {
+	if !serviceRe.MatchString(name) {
+		return fmt.Errorf("service %q must match %s", name, serviceRe)
+	}
+	return nil
+}
+
 func Load(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -90,8 +100,8 @@ func (m *Manifest) Validate() []error {
 		errs = append(errs, fmt.Errorf(format, args...))
 	}
 
-	if !serviceRe.MatchString(m.Service) {
-		fail("service: %q must match %s", m.Service, serviceRe)
+	if err := ValidateServiceName(m.Service); err != nil {
+		fail("%v", err)
 	}
 	if m.SchemaVersion != 1 {
 		fail("schema-version: must be 1, got %d", m.SchemaVersion)

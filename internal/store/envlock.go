@@ -39,6 +39,9 @@ func (s *Store) envLockPath(env string) string {
 
 // LoadEnvLock returns the lockfile for an env (empty when none exists).
 func (s *Store) LoadEnvLock(env string) (EnvLock, error) {
+	if err := ValidateEnvName(env); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(s.envLockPath(env))
 	if os.IsNotExist(err) {
 		return EnvLock{}, nil
@@ -55,6 +58,9 @@ func (s *Store) LoadEnvLock(env string) (EnvLock, error) {
 
 // SaveEnvLock writes the lockfile canonically (sorted keys via marshalling).
 func (s *Store) SaveEnvLock(env string, l EnvLock) error {
+	if err := ValidateEnvName(env); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(s.envLockPath(env)), 0o755); err != nil {
 		return err
 	}

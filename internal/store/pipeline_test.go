@@ -113,3 +113,35 @@ func TestPipelineFileInvisibleToEnvs(t *testing.T) {
 		t.Errorf("Envs must list lockfiles only, got %v", envs)
 	}
 }
+
+func TestValidateEnvName(t *testing.T) {
+	for _, env := range []string{"dev", "staging", "production-eu"} {
+		if err := ValidateEnvName(env); err != nil {
+			t.Errorf("ValidateEnvName(%q): %v", env, err)
+		}
+	}
+	for _, env := range []string{"", ".", "..", "../prod", "prod/eu", `prod\eu`, "/tmp/prod", "Prod", "production_eu"} {
+		if err := ValidateEnvName(env); err == nil {
+			t.Errorf("ValidateEnvName(%q) unexpectedly succeeded", env)
+		}
+	}
+}
+
+func TestEnvLockRejectsPathTraversal(t *testing.T) {
+	repo := t.TempDir()
+	st, err := Open(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(repo, "outside.lock.json")
+	if err := st.SaveEnvLock("../outside", EnvLock{}); err == nil {
+		t.Fatal("SaveEnvLock accepted a traversal environment")
+	}
+	if _, err := os.Stat(outside); !os.IsNotExist(err) {
+		t.Fatalf("SaveEnvLock created escaped path %s: %v", outside, err)
+	}
+	if _, err := st.LoadEnvLock("../outside"); err == nil {
+		t.Fatal("LoadEnvLock accepted a traversal environment")
+	}
+}

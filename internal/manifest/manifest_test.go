@@ -128,3 +128,16 @@ func TestUnknownKeysRejected(t *testing.T) {
 		t.Errorf("error should name the unknown key: %v", err)
 	}
 }
+
+func TestValidateServiceName(t *testing.T) {
+	for _, name := range []string{"orders", "order-service", "service-2"} {
+		if err := ValidateServiceName(name); err != nil {
+			t.Errorf("ValidateServiceName(%q): %v", name, err)
+		}
+	}
+	for _, name := range []string{"", ".", "..", "../orders", "orders/api", `orders\api`, "/tmp/orders", "Order_Service"} {
+		if err := ValidateServiceName(name); err == nil {
+			t.Errorf("ValidateServiceName(%q) unexpectedly succeeded", name)
+		}
+	}
+}

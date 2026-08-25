@@ -51,6 +51,16 @@ func (s *Store) LoadPipeline() ([]string, error) {
 // Env names become lockfile names; constrain them like service names.
 var envRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// ValidateEnvName checks an environment name before it becomes a lockfile
+// path component. Besides keeping lock names portable, the restricted form
+// prevents absolute paths and path traversal through LoadEnvLock/SaveEnvLock.
+func ValidateEnvName(env string) error {
+	if !envRe.MatchString(env) {
+		return fmt.Errorf("environment %q must match %s", env, envRe)
+	}
+	return nil
+}
+
 // ValidatePipelineEnvs rejects orders that cannot describe a promotion path:
 // fewer than two envs, duplicates, or names that cannot be lockfile names.
 // Shared by LoadPipeline and the `matrix --envs` override.
@@ -60,8 +70,8 @@ func ValidatePipelineEnvs(envs []string) error {
 	}
 	seen := map[string]bool{}
 	for _, e := range envs {
-		if !envRe.MatchString(e) {
-			return fmt.Errorf("env %q must match %s", e, envRe)
+		if err := ValidateEnvName(e); err != nil {
+			return err
 		}
 		if seen[e] {
 			return fmt.Errorf("duplicate env %q", e)

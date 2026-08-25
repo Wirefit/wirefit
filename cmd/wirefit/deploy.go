@@ -17,6 +17,7 @@ import (
 
 	"github.com/wirefit/wirefit/internal/diff"
 	"github.com/wirefit/wirefit/internal/ir"
+	"github.com/wirefit/wirefit/internal/manifest"
 	"github.com/wirefit/wirefit/internal/store"
 )
 
@@ -42,6 +43,10 @@ func cmdRecordDeploy(args []string) int {
 	}
 	if *repoDir == "" || *env == "" {
 		fmt.Fprintln(os.Stderr, "wirefit record-deploy: --contracts-repo and --env are required")
+		return 2
+	}
+	if err := store.ValidateEnvName(*env); err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
 		return 2
 	}
 	m, code := loadManifest(*mf)
@@ -127,6 +132,22 @@ func cmdCanIDeploy(args []string) int {
 	if *repoDir == "" || *env == "" {
 		fmt.Fprintln(os.Stderr, "wirefit can-i-deploy: --contracts-repo and --env are required")
 		return 2
+	}
+	if err := store.ValidateEnvName(*env); err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit can-i-deploy: --env:", err)
+		return 2
+	}
+	if *fromEnv != "" {
+		if err := store.ValidateEnvName(*fromEnv); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy: --from-env:", err)
+			return 2
+		}
+	}
+	if *service != "" {
+		if err := manifest.ValidateServiceName(*service); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy: --service:", err)
+			return 2
+		}
 	}
 	var cand candidate
 	if *fromEnv == "" {

@@ -325,6 +325,22 @@ provides:
 	}
 }
 
+func TestDeployCommandsRejectUnsafeNamesBeforeReadingFiles(t *testing.T) {
+	repo := t.TempDir()
+	if code := cmdRecordDeploy([]string{"--contracts-repo", repo, "--env", "../prod"}); code != 2 {
+		t.Errorf("record-deploy traversal exit = %d, want 2", code)
+	}
+	if code := cmdCanIDeploy([]string{"--contracts-repo", repo, "--env", "../prod"}); code != 2 {
+		t.Errorf("can-i-deploy traversal exit = %d, want 2", code)
+	}
+	if code := cmdCanIDeploy([]string{"--contracts-repo", repo, "--env", "prod", "--from-env", "../staging"}); code != 2 {
+		t.Errorf("can-i-deploy from-env traversal exit = %d, want 2", code)
+	}
+	if code := cmdCanIDeploy([]string{"--contracts-repo", repo, "--env", "prod", "--from-env", "staging", "--service", "../orders"}); code != 2 {
+		t.Errorf("can-i-deploy service traversal exit = %d, want 2", code)
+	}
+}
+
 func TestPromoEdges(t *testing.T) {
 	st := promoRepo(t)
 	webConsumes := map[string]string{"order-service/orders.get": blob(t, st, irA)}

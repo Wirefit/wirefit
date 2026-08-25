@@ -162,6 +162,13 @@ var matrixPage = template.Must(template.New("matrix").Funcs(template.FuncMap{
   .filters input, .filters select { display: block; width: 100%; margin-top: .25rem;
                   border: 1px solid var(--border); border-radius: 8px; padding: .48rem .65rem;
                   background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; }
+  .filters select { -webkit-appearance: none; appearance: none; padding-right: 1.9rem; }
+  .select-wrap { position: relative; display: block; margin-top: .25rem; }
+  .select-wrap select { margin-top: 0; }
+  .select-wrap::after { content: ""; position: absolute; right: .72rem; top: 50%;
+                        width: .4rem; height: .4rem; margin-top: -.3rem; pointer-events: none;
+                        border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+                        transform: rotate(45deg); }
   .filter-buttons { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .25rem; }
   .filter-buttons button { border: 1px solid var(--border); border-radius: 999px; padding: .38rem .65rem;
                            background: var(--surface); color: var(--muted); font: inherit;
@@ -292,7 +299,7 @@ document.querySelectorAll("[data-directory]").forEach(function (dir) {
 {{template "shell" "contracts"}}<div class="pagehead"><div><h1>Contracts</h1><p class="sub">Provider-owned interactions and their deployed consumers.</p></div><div class="pagehead-status">{{range .Counts}}<span class="chip st-{{.Status}}" aria-label="{{.N}} {{.Status}} contracts">{{.N}} {{.Status}}</span>{{end}}</div></div>
 {{template "filters" .ContractFilters}}
 {{if .Contracts}}<div class="card"><table class="responsive"><caption class="sr-only">Contracts</caption><thead><tr><th>contract</th><th>consumers</th><th>environments</th><th>deployed health</th>{{if .HasPromotion}}<th>promotion readiness</th>{{end}}</tr></thead><tbody>{{range .Contracts}}<tr data-filter-row data-search="{{lower .Provider}} {{lower .Interaction}}" data-status="{{.Status}}" data-envs="{{range .Envs}}{{.Env}} {{end}}"><td data-label="contract"><a href="#{{.Slug}}"><code>{{.Provider}} / {{.Interaction}}</code></a></td><td data-label="consumers">{{.Consumers}}</td><td data-label="environments" class="envcell">{{range .Envs}}<span class="badge st-{{.Status}}">{{.Env}}</span>{{end}}</td><td data-label="deployed health">{{template "status" .HealthStatus}}</td>{{if $.HasPromotion}}<td data-label="promotion readiness">{{if .HasPromotion}}{{template "status" .PromoStatus}}{{else}}<span class="detail">not checked</span>{{end}}</td>{{end}}</tr>{{end}}</tbody></table><p class="empty-filter">No contracts match these filters.</p></div>{{else}}<div class="card"><p class="empty">no deploy records; run <code>wirefit record-deploy</code> in each service first</p></div>{{end}}</section>{{end}}
-{{define "filters"}}<div class="filters" hidden><label>Search<input type="search" data-search placeholder="Name or interaction"></label><label>Environment<select data-env><option value="">All environments</option>{{range .Envs}}<option>{{.}}</option>{{end}}</select></label><div class="filter-group">Status<div class="filter-buttons">{{range .Counts}}<button type="button" data-status="{{.Status}}" aria-pressed="true">{{.Status}}</button>{{end}}</div></div></div>{{end}}
+{{define "filters"}}<div class="filters" hidden><label>Search<input type="search" data-search placeholder="Name or interaction"></label><label>Environment<span class="select-wrap"><select data-env><option value="">All environments</option>{{range .Envs}}<option>{{.}}</option>{{end}}</select></span></label><div class="filter-group">Status<div class="filter-buttons">{{range .Counts}}<button type="button" data-status="{{.Status}}" aria-pressed="true">{{.Status}}</button>{{end}}</div></div></div>{{end}}
 {{define "services"}}<section class="view" id="view-services">
 {{template "shell" "services"}}<div class="directory" data-directory><div class="pagehead"><div><h1>Services</h1><p class="sub">Deploy-recorded services and the contracts they own or consume.</p></div></div>{{template "filters" .ServiceFilters}}
 {{if .Services}}<div class="card"><table class="responsive"><caption class="sr-only">Services</caption>
