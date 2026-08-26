@@ -340,12 +340,8 @@ func cmdCheck(args []string) int {
 			}}}
 			continue
 		}
-		strict := false
-		if dir == diff.P2C {
-			strict = m.RejectsUnknown() // I parse the response
-		} else {
-			strict = provManifest.RejectsUnknown() // provider parses my request
-		}
+		// I am the consumer here: I parse a P2C response, the provider parses my C2P request.
+		strict := strictParser(dir, m.RejectsUnknown(), provManifest.RejectsUnknown())
 		r := diff.Compat(provIR, mine, diff.CompatOptions{Direction: dir, StrictParser: strict})
 		pol.Apply(r)
 		ovr.Apply(c.ID, r)

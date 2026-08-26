@@ -85,6 +85,19 @@ func strictOf(st *store.Store, svc string) bool {
 	return false
 }
 
+// strictParser picks whose unknown-fields strictness governs a compatibility
+// check: the side that parses. Direction decides which side that is — a P2C
+// response or event is parsed by the consumer, a C2P request by the provider.
+// Assuming the consumer parses hides a strict provider rejecting unknown
+// request fields, so every check (`check`, can-i-deploy, promotion readiness,
+// matrix) resolves StrictParser through here and stays in agreement.
+func strictParser(dir diff.Direction, consumerStrict, providerStrict bool) bool {
+	if dir == diff.C2P {
+		return providerStrict
+	}
+	return consumerStrict
+}
+
 func sortedLockKeys(lock store.EnvLock) []string {
 	keys := make([]string, 0, len(lock))
 	for k := range lock {
@@ -202,7 +215,8 @@ func evalDeploy(st *store.Store, c candidate, env string, lock store.EnvLock,
 				continue
 			}
 			dr.consumerBody = proj
-			r := diff.Compat(cp.schema, proj, diff.CompatOptions{Direction: cp.dir, StrictParser: strictOf(st, svc)})
+			r := diff.Compat(cp.schema, proj, diff.CompatOptions{Direction: cp.dir,
+				StrictParser: strictParser(cp.dir, strictOf(st, svc), c.rejectsUnknown)})
 			if sl.RecordedAt.Before(staleBefore) {
 				r.Findings = append(r.Findings, diff.Finding{
 					Class: diff.Warning, Rule: "stale-deploy-record", Path: "$",
@@ -215,7 +229,8 @@ func evalDeploy(st *store.Store, c candidate, env string, lock store.EnvLock,
 		}
 		for _, svc := range sortedConsumerKeys(mainConsumers) {
 			cons := mainConsumers[svc]
-			r := diff.Compat(cp.schema, cons.Schema, diff.CompatOptions{Direction: cp.dir, StrictParser: cons.RejectUnknown})
+			r := diff.Compat(cp.schema, cons.Schema, diff.CompatOptions{Direction: cp.dir,
+				StrictParser: strictParser(cp.dir, cons.RejectUnknown, c.rejectsUnknown)})
 			r.Findings = append(r.Findings, diff.Finding{
 				Class: diff.Warning, Rule: "untracked-consumer", Path: "$",
 				Message: fmt.Sprintf("%s has no deploy record in %s; checked against its main-branch usage instead", svc, env),
@@ -237,10 +252,7 @@ func evalDeploy(st *store.Store, c candidate, env string, lock store.EnvLock,
 			out = append(out, dr)
 			continue
 		}
-		strict := c.rejectsUnknown
-		if dir == diff.C2P {
-			strict = strictOf(st, cc.provider)
-		}
+		strict := strictParser(dir, c.rejectsUnknown, strictOf(st, cc.provider))
 		var provIR *ir.Schema
 		var extra *diff.Finding
 		if sl, ok := lock[cc.provider]; ok {

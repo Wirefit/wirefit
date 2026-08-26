@@ -480,7 +480,8 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 				if d, ok := dirOf(st, provider, id); ok {
 					dir = d
 				}
-				r := diff.Compat(prov, proj, diff.CompatOptions{Direction: dir, StrictParser: strictOf(st, consumer)})
+				r := diff.Compat(prov, proj, diff.CompatOptions{Direction: dir,
+					StrictParser: strictParser(dir, strictOf(st, consumer), strictOf(st, provider))})
 				e.Findings = r.Findings
 				switch r.Max() {
 				case diff.Breaking:

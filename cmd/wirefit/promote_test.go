@@ -647,3 +647,221 @@ func TestServiceInventory(t *testing.T) {
 		t.Error("serviceInventory is not deterministic")
 	}
 }
+
+// strictC2PRepo builds a request-direction (C2P) fixture. On a request the
+// PROVIDER parses, so only its strictness may gate unknown fields:
+//
+//	uploader — strict provider, parses {a}
+//	intake   — lax provider, parses {a}
+//
+// Both consumers send {a, b}: web-app is lax, mobile and kiosk are strict.
+func strictC2PRepo(t *testing.T) *store.Store {
+	t.Helper()
+	repo := t.TempDir()
+	provider := func(svc, id, settings string) {
+		writeRepoFile(t, repo, "contracts/"+svc+"/manifest.yaml", `service: `+svc+`
+schema-version: 1
+`+settings+`provides:
+  - id: `+id+`
+    kind: rest
+    direction: request
+    dto: X
+`)
+		writeRepoFile(t, repo, "contracts/"+svc+"/provides/"+id+".ir.json", irA)
+	}
+	consumer := func(svc, prov, id, settings string) {
+		writeRepoFile(t, repo, "contracts/"+svc+"/manifest.yaml", `service: `+svc+`
+schema-version: 1
+`+settings+`consumes:
+  - id: `+id+`
+    provider: `+prov+`
+    dto: Y
+`)
+		writeRepoFile(t, repo, "contracts/"+svc+"/consumes/"+prov+"/"+id+".ir.json", irAB)
+	}
+	const strict = "settings:\n  unknown-fields: reject\n"
+	provider("uploader", "files.put", strict)
+	provider("intake", "events.push", "")
+	consumer("web-app", "uploader", "files.put", "")
+	consumer("mobile", "intake", "events.push", strict)
+	consumer("kiosk", "intake", "events.push", strict)
+
+	st, err := store.Open(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func hasRule(r *diff.Result, rule string) bool {
+	if r == nil {
+		return false
+	}
+	for _, f := range r.Findings {
+		if f.Rule == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// On a C2P request the provider parses, so a strict provider must reject the
+// extra field a lax consumer sends — on both the tracked and the
+// untracked-main path, and regardless of who the candidate is.
+func TestC2PStrictnessComesFromProvider(t *testing.T) {
+	st := strictC2PRepo(t)
+	lock := store.EnvLock{
+		"uploader": {RecordedAt: time.Now(), Provides: map[string]string{
+			"files.put": blob(t, st, irA),
+		}},
+		"web-app": {RecordedAt: time.Now(), Consumes: map[string]string{
+			"uploader/files.put": blob(t, st, irAB),
+		}},
+	}
+
+	// Provider candidate: web-app is tracked, kiosk-style main-only consumers
+	// take the fallback path. Drop web-app's record to exercise both.
+	prov := candidate{service: "uploader", rejectsUnknown: true, provides: []candProvide{
+		{id: "files.put", dir: diff.C2P, schema: schema(t, irA)},
+	}}
+	for _, tc := range []struct {
+		name string
+		lock store.EnvLock
+		kind trackedKind
+	}{
+		{"tracked", lock, tracked},
+		{"untracked-main", store.EnvLock{}, untrackedMain},
+	} {
+		drs, err := evalDeploy(st, prov, "staging", tc.lock, neverStale(), 30)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(drs) != 1 {
+			t.Fatalf("%s: got %d results, want 1: %+v", tc.name, len(drs), drs)
+		}
+		if drs[0].kind != tc.kind {
+			t.Errorf("%s: kind = %v, want %v", tc.name, drs[0].kind, tc.kind)
+		}
+		if !hasRule(drs[0].res, "unknown-field-rejected") {
+			t.Errorf("%s: strict provider did not reject the unknown request field: %+v",
+				tc.name, drs[0].res.Findings)
+		}
+	}
+
+	// Same contract from the consumer's side must reach the same verdict.
+	cons := candidate{service: "web-app", consumes: []candConsume{
+		{provider: "uploader", id: "files.put", schema: schema(t, irAB)},
+	}}
+	drs, err := evalDeploy(st, cons, "staging", lock, neverStale(), 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drs) != 1 || !hasRule(drs[0].res, "unknown-field-rejected") {
+		t.Errorf("consumer side disagrees with provider side: %+v", drs)
+	}
+}
+
+// The inverse: a strict CONSUMER says nothing about a request it emits, so a
+// lax provider must still accept the extra field.
+func TestC2PIgnoresConsumerStrictness(t *testing.T) {
+	st := strictC2PRepo(t)
+	lock := store.EnvLock{
+		"mobile": {RecordedAt: time.Now(), Consumes: map[string]string{
+			"intake/events.push": blob(t, st, irAB),
+		}},
+	}
+	prov := candidate{service: "intake", provides: []candProvide{
+		{id: "events.push", dir: diff.C2P, schema: schema(t, irA)},
+	}}
+	drs, err := evalDeploy(st, prov, "staging", lock, neverStale(), 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drs) != 2 { // mobile tracked, kiosk untracked-main
+		t.Fatalf("got %d results, want 2: %+v", len(drs), drs)
+	}
+	for _, dr := range drs {
+		if hasRule(dr.res, "unknown-field-rejected") {
+			t.Errorf("%s: strict consumer must not gate a request it emits: %+v",
+				dr.counterpart, dr.res.Findings)
+		}
+	}
+}
+
+// check, can-i-deploy, promotion readiness and matrix must all reach the same
+// verdict for one request contract.
+func TestRequestContractVerdictsAgree(t *testing.T) {
+	st := strictC2PRepo(t)
+	lock := store.EnvLock{
+		"uploader": {RecordedAt: time.Now(), Provides: map[string]string{
+			"files.put": blob(t, st, irA),
+		}},
+		"web-app": {RecordedAt: time.Now(), Consumes: map[string]string{
+			"uploader/files.put": blob(t, st, irAB),
+		}},
+	}
+	saveLock(t, st, "dev", lock)
+	saveLock(t, st, "staging", lock)
+
+	edges, err := matrixEdges(st, neverStale())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) == 0 {
+		t.Fatal("matrix produced no edges")
+	}
+	for _, e := range edges {
+		if e.Status != matrixStatusIncompatible {
+			t.Errorf("matrix %s/%s in %s: status = %v, want incompatible (%+v)",
+				e.Provider, e.Interaction, e.Env, e.Status, e.Findings)
+		}
+	}
+
+	promos, err := promoEdges(st, []string{"dev", "staging"}, neverStale(), 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(promos) == 0 {
+		t.Fatal("promotion readiness produced no edges")
+	}
+	for _, e := range promos {
+		if e.Status != matrixStatusIncompatible {
+			t.Errorf("promotion %s %s: status = %v, want incompatible (%+v)",
+				e.Service, e.Side, e.Status, e.Findings)
+		}
+	}
+
+	// check, run as the consumer against the same published contracts.
+	dir := t.TempDir()
+	writeRepoFile(t, dir, "contracts.yaml", `service: web-app
+schema-version: 1
+consumes:
+  - id: files.put
+    provider: uploader
+    dto: Y
+`)
+	writeRepoFile(t, dir, "ir/consumes/uploader/files.put.ir.json", irAB)
+	code := cmdCheck([]string{"--contracts-repo", st.Dir,
+		"-f", filepath.Join(dir, "contracts.yaml"), "--ir", filepath.Join(dir, "ir")})
+	if code != 1 {
+		t.Errorf("check exit = %d, want 1 (breaking)", code)
+	}
+}
+
+func TestStrictParserFollowsDirection(t *testing.T) {
+	for _, tc := range []struct {
+		dir                            diff.Direction
+		consumerStrict, providerStrict bool
+		want                           bool
+	}{
+		{diff.P2C, true, false, true},  // consumer parses the response
+		{diff.P2C, false, true, false}, // provider's strictness is irrelevant
+		{diff.C2P, false, true, true},  // provider parses the request
+		{diff.C2P, true, false, false}, // consumer's strictness is irrelevant
+	} {
+		if got := strictParser(tc.dir, tc.consumerStrict, tc.providerStrict); got != tc.want {
+			t.Errorf("strictParser(%v, consumer=%v, provider=%v) = %v, want %v",
+				tc.dir, tc.consumerStrict, tc.providerStrict, got, tc.want)
+		}
+	}
+}
