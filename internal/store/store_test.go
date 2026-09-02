@@ -34,6 +34,93 @@ func exists(t *testing.T, path string) bool {
 	return err == nil
 }
 
+func gitAt(t *testing.T, repo string) func(...string) string {
+	t.Helper()
+	return func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+}
+
+func newTestGitRepo(t *testing.T) (string, func(...string) string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := t.TempDir()
+	git := gitAt(t, repo)
+	git("init", "-q", "-b", "main")
+	git("config", "user.email", "t@t")
+	git("config", "user.name", "t")
+	return repo, git
+}
+
+func writeRepoFile(t *testing.T, repo, rel, content string) {
+	t.Helper()
+	p := filepath.Join(repo, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func requireHeadPaths(t *testing.T, git func(...string) string, want ...string) {
+	t.Helper()
+	got := strings.Fields(git("show", "--format=", "--name-only", "HEAD"))
+	wants := make(map[string]bool, len(want))
+	for _, path := range want {
+		wants[path] = true
+	}
+	if len(got) != len(wants) {
+		t.Fatalf("HEAD paths = %v, want %v", got, want)
+	}
+	for _, path := range got {
+		if !wants[path] {
+			t.Fatalf("HEAD contains unexpected path %q; got %v, want %v", path, got, want)
+		}
+	}
+}
+
+func addBareRemote(t *testing.T, git func(...string) string) string {
+	t.Helper()
+	remote := t.TempDir()
+	gitAt(t, remote)("init", "--bare", "-q", "-b", "main")
+	git("remote", "add", "origin", remote)
+	git("push", "-q", "-u", "origin", "main")
+	return remote
+}
+
+func advanceRemote(t *testing.T, remote string) {
+	t.Helper()
+	peer := filepath.Join(t.TempDir(), "peer")
+	out, err := exec.Command("git", "clone", "-q", remote, peer).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git clone: %v: %s", err, out)
+	}
+	git := gitAt(t, peer)
+	git("config", "user.email", "peer@t")
+	git("config", "user.name", "peer")
+	writeRepoFile(t, peer, "remote-change.txt", "remote change\n")
+	git("add", "remote-change.txt")
+	git("commit", "-q", "-m", "remote change")
+	git("push", "-q")
+}
+
+func installGitHook(t *testing.T, repo, name, message string) {
+	t.Helper()
+	p := filepath.Join(repo, ".git", "hooks", name)
+	content := "#!/bin/sh\necho '" + message + "' >&2\nexit 1\n"
+	if err := os.WriteFile(p, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPublishPrunesDroppedInteractions(t *testing.T) {
 	repo := t.TempDir() // no .git: write-only mode
 	st, err := Open(repo)
@@ -88,21 +175,7 @@ consumes:
 }
 
 func TestPublishPruneCommitsDeletions(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-	repo := t.TempDir()
-	git := func(args ...string) string {
-		t.Helper()
-		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
-	git("init", "-q")
-	git("config", "user.email", "t@t")
-	git("config", "user.name", "t")
+	repo, git := newTestGitRepo(t)
 
 	st, err := Open(repo)
 	if err != nil {
@@ -137,6 +210,181 @@ consumes:
 	}
 	if git("rev-parse", "HEAD") != head {
 		t.Error("republishing identical content must not create a commit")
+	}
+}
+
+func TestPublishCommitsOnlyServicePaths(t *testing.T) {
+	repo, git := newTestGitRepo(t)
+	writeRepoFile(t, repo, "user-staged.txt", "base staged\n")
+	writeRepoFile(t, repo, "user-unstaged.txt", "base unstaged\n")
+	git("add", "user-staged.txt", "user-unstaged.txt")
+	git("commit", "-q", "-m", "baseline")
+
+	writeRepoFile(t, repo, "user-staged.txt", "user staged change\n")
+	writeRepoFile(t, repo, "user-unstaged.txt", "user unstaged change\n")
+	git("add", "user-staged.txt")
+
+	st, err := Open(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	m, src := writeManifest(t, work, `
+service: svc
+schema-version: 1
+provides:
+  - id: svc.pong
+    kind: rest
+    direction: response
+    dto: X
+`)
+	if err := st.Publish(m, src, map[string][]byte{"svc.pong": []byte(irRaw)}, nil, false); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range strings.Fields(git("show", "--format=", "--name-only", "HEAD")) {
+		if !strings.HasPrefix(path, "contracts/svc/") {
+			t.Fatalf("publish commit contains unrelated path %q", path)
+		}
+	}
+	if got := git("diff", "--cached", "--name-only"); got != "user-staged.txt" {
+		t.Errorf("staged user changes = %q, want user-staged.txt", got)
+	}
+	if got := git("diff", "--name-only"); got != "user-unstaged.txt" {
+		t.Errorf("unstaged user changes = %q, want user-unstaged.txt", got)
+	}
+	if got := git("show", "HEAD:user-staged.txt"); got != "base staged" {
+		t.Errorf("publish committed staged user content %q", got)
+	}
+	if got := git("show", "HEAD:user-unstaged.txt"); got != "base unstaged" {
+		t.Errorf("publish committed unstaged user content %q", got)
+	}
+
+	head := git("rev-parse", "HEAD")
+	if err := st.Publish(m, src, map[string][]byte{"svc.pong": []byte(irRaw)}, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := git("rev-parse", "HEAD"); got != head {
+		t.Errorf("identical publish created commit %s, previous HEAD %s", got, head)
+	}
+}
+
+func TestCommitPathsCommitsOnlyRequestedPaths(t *testing.T) {
+	repo, git := newTestGitRepo(t)
+	writeRepoFile(t, repo, "user-staged.txt", "base staged\n")
+	writeRepoFile(t, repo, "user-unstaged.txt", "base unstaged\n")
+	git("add", "user-staged.txt", "user-unstaged.txt")
+	git("commit", "-q", "-m", "baseline")
+
+	writeRepoFile(t, repo, "user-staged.txt", "user staged change\n")
+	writeRepoFile(t, repo, "user-unstaged.txt", "user unstaged change\n")
+	git("add", "user-staged.txt")
+	writeRepoFile(t, repo, "_envs/production.lock.json", "{}\n")
+	writeRepoFile(t, repo, "_blobs/abc.ir.json", irRaw+"\n")
+
+	st, err := Open(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CommitPaths("wirefit record-deploy: svc → production", "_envs", "_blobs"); err != nil {
+		t.Fatal(err)
+	}
+	requireHeadPaths(t, git, "_blobs/abc.ir.json", "_envs/production.lock.json")
+	if got := git("diff", "--cached", "--name-only"); got != "user-staged.txt" {
+		t.Errorf("staged user changes = %q, want user-staged.txt", got)
+	}
+	if got := git("diff", "--name-only"); got != "user-unstaged.txt" {
+		t.Errorf("unstaged user changes = %q, want user-unstaged.txt", got)
+	}
+
+	head := git("rev-parse", "HEAD")
+	if err := st.CommitPaths("no scoped changes", "_envs", "_blobs"); err != nil {
+		t.Fatal(err)
+	}
+	if got := git("rev-parse", "HEAD"); got != head {
+		t.Errorf("unrelated changes caused commit %s, previous HEAD %s", got, head)
+	}
+	if err := st.CommitPaths("missing scope"); err == nil {
+		t.Error("CommitPaths accepted an empty path list")
+	}
+}
+
+func TestCommitPathsRebasesAndRetriesWithUserChanges(t *testing.T) {
+	repo, git := newTestGitRepo(t)
+	writeRepoFile(t, repo, "user-staged.txt", "base staged\n")
+	writeRepoFile(t, repo, "user-unstaged.txt", "base unstaged\n")
+	git("add", "user-staged.txt", "user-unstaged.txt")
+	git("commit", "-q", "-m", "baseline")
+	remote := addBareRemote(t, git)
+	advanceRemote(t, remote)
+
+	writeRepoFile(t, repo, "user-staged.txt", "user staged change\n")
+	writeRepoFile(t, repo, "user-unstaged.txt", "user unstaged change\n")
+	git("add", "user-staged.txt")
+	writeRepoFile(t, repo, "_envs/production.lock.json", "{}\n")
+	writeRepoFile(t, repo, "_blobs/abc.ir.json", irRaw+"\n")
+
+	st, err := Open(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CommitPaths("wirefit record-deploy: svc → production", "_envs", "_blobs"); err != nil {
+		t.Fatal(err)
+	}
+	if local, pushed := git("rev-parse", "HEAD"), gitAt(t, remote)("rev-parse", "refs/heads/main"); local != pushed {
+		t.Errorf("local HEAD %s was not pushed; remote is %s", local, pushed)
+	}
+	requireHeadPaths(t, git, "_blobs/abc.ir.json", "_envs/production.lock.json")
+	if got := git("show", "HEAD:user-staged.txt"); got != "base staged" {
+		t.Errorf("retry committed staged user content %q", got)
+	}
+	if got := git("show", "HEAD:user-unstaged.txt"); got != "base unstaged" {
+		t.Errorf("retry committed unstaged user content %q", got)
+	}
+	status := git("status", "--porcelain")
+	for _, path := range []string{"user-staged.txt", "user-unstaged.txt"} {
+		if !strings.Contains(status, path) {
+			t.Errorf("retry lost user change %s; status:\n%s", path, status)
+		}
+	}
+}
+
+func TestCommitPathsPreservesPushOutput(t *testing.T) {
+	repo, git := newTestGitRepo(t)
+	writeRepoFile(t, repo, "seed.txt", "seed\n")
+	git("add", "seed.txt")
+	git("commit", "-q", "-m", "baseline")
+	addBareRemote(t, git)
+	installGitHook(t, repo, "pre-push", "push rejected by test")
+	writeRepoFile(t, repo, "_envs/production.lock.json", "{}\n")
+
+	st, err := Open(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.CommitPaths("deploy", "_envs")
+	if err == nil || !strings.Contains(err.Error(), "push rejected by test") {
+		t.Fatalf("push error = %v, want hook output", err)
+	}
+}
+
+func TestCommitPathsPreservesRebaseOutput(t *testing.T) {
+	repo, git := newTestGitRepo(t)
+	writeRepoFile(t, repo, "seed.txt", "seed\n")
+	git("add", "seed.txt")
+	git("commit", "-q", "-m", "baseline")
+	remote := addBareRemote(t, git)
+	advanceRemote(t, remote)
+	installGitHook(t, repo, "pre-rebase", "rebase rejected by test")
+	writeRepoFile(t, repo, "_envs/production.lock.json", "{}\n")
+
+	st, err := Open(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.CommitPaths("deploy", "_envs")
+	if err == nil || !strings.Contains(err.Error(), "rebase rejected by test") {
+		t.Fatalf("rebase error = %v, want hook output", err)
 	}
 }
 
