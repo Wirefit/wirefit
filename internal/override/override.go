@@ -9,14 +9,12 @@
 package override
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/wirefit/wirefit/internal/diff"
+	"github.com/wirefit/wirefit/internal/yamlx"
 )
 
 // MaxValidity bounds how far in the future an override may expire.
@@ -48,9 +46,7 @@ func Load(path string, now time.Time) (*File, []error) {
 		return nil, []error{err}
 	}
 	var f File
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&f); err != nil {
+	if err := yamlx.StrictUnmarshal(data, &f); err != nil {
 		return nil, []error{fmt.Errorf("%s: %w", path, err)}
 	}
 	var errs []error

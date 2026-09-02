@@ -27,6 +27,15 @@ var allScalars = map[Scalar]string{
 
 func (s Scalar) Valid() bool { _, ok := allScalars[s]; return ok }
 
+// The `type` values IR accepts, derived from allScalars so the two cannot drift.
+var jsonTypes = func() map[string]bool {
+	m := map[string]bool{"object": true, "array": true}
+	for _, jt := range allScalars {
+		m[jt] = true
+	}
+	return m
+}()
+
 // JSONType is the wire-level JSON type the scalar serializes to.
 func (s Scalar) JSONType() string { return allScalars[s] }
 

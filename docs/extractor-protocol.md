@@ -58,6 +58,25 @@ Exit non-zero (and/or set `error`) on failure.
 - Emitted documents must be valid wirefit IR (SPEC §7): the JSON Schema subset with
   `x-ct-scalar`, `x-ct-nullable`, `x-ct-recursive`, `x-ct-discriminator(-value)`.
   wirefit re-validates and canonicalizes everything — but invalid IR fails the run.
+
+  Every node commits to exactly **one** shape and carries only that shape's fields.
+  `x-ct-nullable` and `x-ct-discriminator-value` are orthogonal to shape and allowed
+  anywhere:
+
+  | shape | required | may also carry |
+  |---|---|---|
+  | scalar | `x-ct-scalar` — the JSON `type` alone does not pin the wire contract | `type`, `enum` |
+  | object | `type: "object"` or `properties` | `properties`, `required`, `additionalProperties` |
+  | array | `items` | `type: "array"` |
+  | union | `oneOf` and `x-ct-discriminator`; every branch an object carrying `x-ct-discriminator-value` | — |
+  | recursion cut-off | `x-ct-recursive: true` | nothing |
+
+  `type`, when present, must be one of `object`, `array`, `string`, `number`,
+  `integer`, `boolean`. A node with no shape at all (`{}`) is rejected — it would
+  compare as compatible with everything — except as an object property value, where
+  it is the presence-only form a consumer projection uses to say "this consumer reads
+  this field" without constraining its type. Emit one JSON document per schema:
+  trailing data is an error, not something wirefit skips.
 - **Determinism (NF3):** identical inputs must produce identical output. No timestamps,
   no random ordering.
 - **No data leakage (NF5):** structure only — never example values, constants, or secrets.

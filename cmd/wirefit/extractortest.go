@@ -11,11 +11,10 @@ import (
 	"fmt"
 	"os"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/wirefit/wirefit/internal/confexpected"
 	"github.com/wirefit/wirefit/internal/extproto"
 	"github.com/wirefit/wirefit/internal/ir"
+	"github.com/wirefit/wirefit/internal/yamlx"
 )
 
 type extCase struct {
@@ -46,7 +45,7 @@ func cmdExtractorTest(args []string) int {
 		return 2
 	}
 	var cf extCasesFile
-	if err := yaml.Unmarshal(data, &cf); err != nil {
+	if err := yamlx.StrictUnmarshal(data, &cf); err != nil {
 		fmt.Fprintln(os.Stderr, "wirefit extractor-test:", err)
 		return 2
 	}

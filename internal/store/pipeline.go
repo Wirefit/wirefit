@@ -4,13 +4,12 @@
 package store
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 
-	"gopkg.in/yaml.v3"
+	"github.com/wirefit/wirefit/internal/yamlx"
 )
 
 // Pipeline is the parsed _envs/pipeline.yaml.
@@ -34,9 +33,7 @@ func (s *Store) LoadPipeline() ([]string, error) {
 		return nil, err
 	}
 	var p Pipeline
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&p); err != nil {
+	if err := yamlx.StrictUnmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("%s: %w", s.pipelinePath(), err)
 	}
 	if p.SchemaVersion != 1 {

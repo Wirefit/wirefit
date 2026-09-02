@@ -3,12 +3,11 @@
 package manifest
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"regexp"
 
-	"gopkg.in/yaml.v3"
+	"github.com/wirefit/wirefit/internal/yamlx"
 )
 
 type Manifest struct {
@@ -84,9 +83,7 @@ func Load(path string) (*Manifest, error) {
 
 func Parse(data []byte) (*Manifest, error) {
 	var m Manifest
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&m); err != nil {
+	if err := yamlx.StrictUnmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("contracts.yaml: %w", err)
 	}
 	return &m, nil

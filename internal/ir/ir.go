@@ -137,22 +137,137 @@ func (s *Schema) Normalize() {
 	}
 }
 
-// Validate enforces the IR subset rules.
-func (s *Schema) Validate() error {
+// schemaKind mirrors JSONKind's precedence exactly, so the validator and the
+// diff engine can never disagree about what a node is.
+type schemaKind string
+
+const (
+	kindNone      schemaKind = ""
+	kindRecursive schemaKind = "recursive"
+	kindUnion     schemaKind = "union"
+	kindObject    schemaKind = "object"
+	kindArray     schemaKind = "array"
+	kindScalar    schemaKind = "scalar"
+)
+
+func (s *Schema) kind() schemaKind {
+	switch {
+	case s == nil:
+		return kindNone
+	case s.Recursive:
+		return kindRecursive
+	case len(s.OneOf) > 0:
+		return kindUnion
+	case s.Properties != nil || s.Type == "object":
+		return kindObject
+	case s.Items != nil || s.Type == "array":
+		return kindArray
+	case s.Scalar != "" || s.Type != "":
+		return kindScalar
+	}
+	return kindNone
+}
+
+// x-ct-nullable and x-ct-discriminator-value are orthogonal to shape, so they
+// are allowed on any kind and deliberately absent from this table.
+var kindFields = map[schemaKind]map[string]bool{
+	kindRecursive: {"x-ct-recursive": true},
+	kindUnion:     {"oneOf": true, "x-ct-discriminator": true},
+	kindObject:    {"type": true, "properties": true, "required": true, "additionalProperties": true},
+	kindArray:     {"type": true, "items": true},
+	kindScalar:    {"type": true, "x-ct-scalar": true, "enum": true},
+}
+
+func (s *Schema) presentFields() []string {
+	var out []string
+	add := func(present bool, name string) {
+		if present {
+			out = append(out, name)
+		}
+	}
+	add(s.Type != "", "type")
+	add(s.Scalar != "", "x-ct-scalar")
+	add(s.Recursive, "x-ct-recursive")
+	add(s.Properties != nil, "properties")
+	add(len(s.Required) > 0, "required")
+	add(s.Items != nil, "items")
+	add(len(s.Enum) > 0, "enum")
+	add(len(s.OneOf) > 0, "oneOf")
+	add(s.Discriminator != "", "x-ct-discriminator")
+	add(s.AdditionalProperties != nil, "additionalProperties")
+	return out
+}
+
+// Validate enforces the IR subset rules: every node commits to exactly one
+// shape and carries only that shape's fields. Looseness here fails OPEN
+// downstream — an unrecognized type compares equal to itself, an array without
+// items matches any array, and a shapeless schema produces no findings against
+// anything. Run it after Normalize.
+func (s *Schema) Validate() error { return s.validate(false) }
+
+// inProperty marks the one position where a node may legitimately have no
+// shape — see the kindNone case.
+func (s *Schema) validate(inProperty bool) error {
 	if s == nil {
 		return fmt.Errorf("nil schema")
 	}
 	if s.Scalar != "" && !s.Scalar.Valid() {
 		return fmt.Errorf("unknown scalar %q", s.Scalar)
 	}
+	if s.Type != "" && !jsonTypes[s.Type] {
+		return fmt.Errorf("unknown type %q", s.Type)
+	}
 	if s.Scalar != "" && s.Type != "" && s.Type != s.Scalar.JSONType() {
 		return fmt.Errorf("scalar %q inconsistent with type %q", s.Scalar, s.Type)
 	}
+
+	k := s.kind()
+	if k == kindNone {
+		if f := s.presentFields(); len(f) > 0 {
+			return fmt.Errorf("schema has no shape but carries %q", f[0])
+		}
+		// A shapeless property is a consumer projection: "this consumer reads
+		// this field", asserting nothing about its type. Anywhere else it
+		// would simply match everything.
+		if inProperty {
+			return nil
+		}
+		return fmt.Errorf("schema has no shape: expected one of type, x-ct-scalar, oneOf or x-ct-recursive")
+	}
+	for _, f := range s.presentFields() {
+		if !kindFields[k][f] {
+			return fmt.Errorf("%s schema must not carry %q", k, f)
+		}
+	}
+	switch k {
+	case kindObject:
+		// No properties requirement: a bare {"type":"object"} is a closed
+		// object with none, which is what an empty struct extracts to.
+		if s.Type != "" && s.Type != "object" {
+			return fmt.Errorf("object schema declares type %q", s.Type)
+		}
+	case kindArray:
+		if s.Type != "" && s.Type != "array" {
+			return fmt.Errorf("array schema declares type %q", s.Type)
+		}
+		if s.Items == nil {
+			return fmt.Errorf("array schema requires items")
+		}
+	case kindScalar:
+		if s.Scalar == "" {
+			return fmt.Errorf("type %q requires x-ct-scalar: the JSON type alone does not pin the wire contract", s.Type)
+		}
+	case kindUnion:
+		if s.Discriminator == "" {
+			return fmt.Errorf("oneOf requires x-ct-discriminator (tagged unions only in v1)")
+		}
+	}
+
 	for name, c := range s.Properties {
 		if name == "" {
 			return fmt.Errorf("empty property name")
 		}
-		if err := c.Validate(); err != nil {
+		if err := c.validate(true); err != nil {
 			return fmt.Errorf("property %q: %w", name, err)
 		}
 	}
@@ -162,21 +277,21 @@ func (s *Schema) Validate() error {
 		}
 	}
 	if s.Items != nil {
-		if err := s.Items.Validate(); err != nil {
+		if err := s.Items.validate(false); err != nil {
 			return fmt.Errorf("items: %w", err)
 		}
 	}
 	if v := s.MapValue(); v != nil {
-		if err := v.Validate(); err != nil {
+		if err := v.validate(false); err != nil {
 			return fmt.Errorf("additionalProperties: %w", err)
 		}
 	}
-	if len(s.OneOf) > 0 {
-		if s.Discriminator == "" {
-			return fmt.Errorf("oneOf requires x-ct-discriminator (tagged unions only in v1)")
-		}
+	if k == kindUnion {
 		seen := map[string]bool{}
 		for _, b := range s.OneOf {
+			if b == nil {
+				return fmt.Errorf("null oneOf branch")
+			}
 			if b.DiscriminatorValue == "" {
 				return fmt.Errorf("oneOf branch missing x-ct-discriminator-value")
 			}
@@ -184,8 +299,11 @@ func (s *Schema) Validate() error {
 				return fmt.Errorf("duplicate oneOf branch %q", b.DiscriminatorValue)
 			}
 			seen[b.DiscriminatorValue] = true
-			if err := b.Validate(); err != nil {
+			if err := b.validate(false); err != nil {
 				return fmt.Errorf("oneOf %q: %w", b.DiscriminatorValue, err)
+			}
+			if b.kind() != kindObject {
+				return fmt.Errorf("oneOf %q: branch must be an object", b.DiscriminatorValue)
 			}
 		}
 	}
@@ -208,6 +326,9 @@ func Parse(data []byte) (*Schema, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
 		return nil, fmt.Errorf("invalid IR: %w", err)
+	}
+	if dec.More() {
+		return nil, fmt.Errorf("invalid IR: trailing data after JSON document")
 	}
 	s.Normalize()
 	if err := s.Validate(); err != nil {
