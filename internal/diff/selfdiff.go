@@ -122,23 +122,24 @@ func (w *selfWalker) node(p path, b, a *ir.Schema) {
 	}
 	if b.Recursive || a.Recursive {
 		if b.Recursive != a.Recursive {
-			w.add(Breaking, "type-changed", p, "recursive marker changed")
+			w.add(Breaking, "type-changed", p,
+				"one version of this type refers back to itself and the other does not")
 		}
 		return
 	}
 
 	kb, ka := b.JSONKind(), a.JSONKind()
 	if kindFamily(kb) != kindFamily(ka) {
-		w.add(Breaking, "type-changed", p, fmt.Sprintf("type changed: %s → %s", kb, ka))
+		w.add(Breaking, "type-changed", p, fmt.Sprintf("this was %s, now it is %s", article(kb), article(ka)))
 		return // children are meaningless across a kind change
 	}
 
 	// Nullability (distinct from absence, SPEC §7).
 	if !b.Nullable && a.Nullable {
-		w.widen("nullable-added", p, "value may now be null")
+		w.widen("nullable-added", p, "this value can now be null")
 	}
 	if b.Nullable && !a.Nullable {
-		w.narrow("nullable-removed", p, "null no longer allowed")
+		w.narrow("nullable-removed", p, "this value can no longer be null")
 	}
 
 	// Scalar refinement within the same JSON kind.
@@ -149,14 +150,15 @@ func (w *selfWalker) node(p path, b, a *ir.Schema) {
 		} else {
 			fit = ir.Fits(b.Scalar, a.Scalar) // old submissions parsed as new type
 		}
-		msg := fmt.Sprintf("scalar changed: %s → %s", b.Scalar, a.Scalar)
+		msg := fmt.Sprintf("type changed from %s to %s", b.Scalar, a.Scalar)
 		switch fit {
 		case ir.FitOK:
 			w.add(Safe, "scalar-changed", p, msg)
 		case ir.FitLossy:
-			w.add(Warning, "scalar-lossy", p, msg+" (precision loss possible)")
+			w.add(Warning, "scalar-lossy", p, msg+"; large values lose precision")
 		case ir.FitNo:
-			w.add(Breaking, "scalar-changed", p, msg)
+			// The reason is known here and nowhere else: keep it in the message.
+			w.add(Breaking, "scalar-changed", p, msg+"; the values do not convert")
 		}
 	}
 
@@ -185,20 +187,20 @@ func (w *selfWalker) enums(p path, b, a *ir.Schema) {
 	}
 	switch {
 	case len(b.Enum) == 0:
-		w.narrow("enum-restricted", p, "previously open value is now a closed enum")
+		w.narrow("enum-restricted", p, "this used to accept any value, now only a fixed list")
 	case len(a.Enum) == 0:
-		w.widen("enum-opened", p, "previously closed enum is now an open value")
+		w.widen("enum-opened", p, "this used to accept a fixed list, now it accepts any value")
 	default:
 		for _, v := range a.Enum {
 			if !contains(b.Enum, v) {
-				w.widen("enum-value-added", p, fmt.Sprintf("enum value %q added", v))
+				w.widen("enum-value-added", p, fmt.Sprintf("%q is a new allowed value here", v))
 			}
 		}
 		for _, v := range b.Enum {
 			if !contains(a.Enum, v) {
 				// Conservative in C2P: we cannot know which values consumers
 				// send unless their projections carry enums (future refinement).
-				w.narrow("enum-value-removed", p, fmt.Sprintf("enum value %q removed", v))
+				w.narrow("enum-value-removed", p, fmt.Sprintf("%q is no longer an allowed value here", v))
 			}
 		}
 	}
@@ -209,10 +211,10 @@ func (w *selfWalker) objects(p path, b, a *ir.Schema) {
 	bOpen := b.AdditionalProperties != nil
 	aOpen := a.AdditionalProperties != nil
 	if !bOpen && aOpen {
-		w.widen("additional-properties-opened", p, "object now allows arbitrary additional properties")
+		w.widen("additional-properties-opened", p, "this object now allows extra fields beyond the ones listed")
 	}
 	if bOpen && !aOpen {
-		w.narrow("additional-properties-closed", p, "object no longer allows additional properties")
+		w.narrow("additional-properties-closed", p, "this object no longer allows extra fields")
 	}
 	// Map value type changes (both still open maps): constraining the value type
 	// narrows, opening it widens — mirroring enum open/closed.
@@ -220,9 +222,10 @@ func (w *selfWalker) objects(p path, b, a *ir.Schema) {
 		bv, av := b.MapValue(), a.MapValue()
 		switch {
 		case bv == nil && av != nil:
-			w.narrow("map-value-restricted", p.mapValue(), "map values were unconstrained, now a fixed type")
+			w.narrow("map-value-restricted", p.mapValue(),
+				"map values could be anything before, now they must all be one type")
 		case bv != nil && av == nil:
-			w.widen("map-value-opened", p.mapValue(), "map values were a fixed type, now unconstrained")
+			w.widen("map-value-opened", p.mapValue(), "map values had to be one type before, now they can be anything")
 		case bv != nil && av != nil:
 			w.node(p.mapValue(), bv, av)
 		}
@@ -255,9 +258,10 @@ func (w *selfWalker) fieldRemoved(fp path) {
 	// are only broken if the provider rejects unknown fields.
 	if w.opts.ProviderRejectsUnknown {
 		w.addRaw(Breaking, "field-removed", fp,
-			"field removed and provider rejects unknown fields", w.consumedBy(fp))
+			"field removed, and the provider rejects fields it does not know", w.consumedBy(fp))
 	} else {
-		w.add(Safe, "field-removed", fp, "field removed from accepted set (unknown fields ignored)")
+		w.add(Safe, "field-removed", fp,
+			"field removed, but extra fields are ignored, so senders can keep sending it")
 	}
 }
 
@@ -273,7 +277,7 @@ func (w *selfWalker) fieldAdded(fp path, required bool) {
 		sort.Strings(strict)
 		if len(strict) > 0 {
 			w.addRaw(Breaking, "field-added", fp,
-				"field added but some consumers reject unknown fields", strict)
+				"field added, and these consumers reject fields they do not know", strict)
 		} else {
 			w.add(Safe, "field-added", fp, "field added")
 		}
@@ -298,7 +302,7 @@ func (w *selfWalker) requiredTransition(fp path, wasRequired, isRequired bool) {
 	switch {
 	case wasRequired && !isRequired:
 		// Presence no longer guaranteed → widen.
-		w.widen("required-to-optional", fp, "field is no longer guaranteed to be present")
+		w.widen("required-to-optional", fp, "this field may now be missing")
 	case !wasRequired && isRequired:
 		if w.opts.Direction == C2P {
 			// Breaks exactly the consumers that do not already send the field.
@@ -308,18 +312,19 @@ func (w *selfWalker) requiredTransition(fp path, wasRequired, isRequired bool) {
 					"field now required; all registered consumers already send it", nil)
 			} else {
 				w.addRaw(Breaking, "optional-to-required", fp,
-					"field now required; consumers may not send it", lacking)
+					"field is now required, and these consumers may not be sending it", lacking)
 			}
 			return
 		}
-		w.add(Safe, "optional-to-required", fp, "field is now guaranteed to be present")
+		w.add(Safe, "optional-to-required", fp, "this field will now always be there")
 	}
 }
 
 func (w *selfWalker) unions(p path, b, a *ir.Schema) {
 	if b.Discriminator != a.Discriminator {
 		w.add(Breaking, "discriminator-changed", p,
-			fmt.Sprintf("discriminator changed: %s → %s", b.Discriminator, a.Discriminator))
+			fmt.Sprintf("the field that says which variant this is moved from %q to %q",
+				b.Discriminator, a.Discriminator))
 		return
 	}
 	branches := func(s *ir.Schema) map[string]*ir.Schema {
@@ -333,7 +338,7 @@ func (w *selfWalker) unions(p path, b, a *ir.Schema) {
 	for _, tag := range sortedKeys(bb) {
 		bp := p.branch(tag)
 		if ab[tag] == nil {
-			w.narrow("union-branch-removed", bp, fmt.Sprintf("union branch %q removed", tag))
+			w.narrow("union-branch-removed", bp, fmt.Sprintf("the %q variant is gone", tag))
 			continue
 		}
 		w.node(bp, bb[tag], ab[tag])
@@ -342,7 +347,7 @@ func (w *selfWalker) unions(p path, b, a *ir.Schema) {
 		if bb[tag] == nil {
 			// Reported at the union node, not the new branch path: consumers'
 			// projections contain the union, never the branch they don't know.
-			w.widen("union-branch-added", p, fmt.Sprintf("union branch %q added", tag))
+			w.widen("union-branch-added", p, fmt.Sprintf("%q is a new variant here", tag))
 		}
 	}
 }

@@ -96,6 +96,19 @@ func (r *Result) Max() Class {
 	return m
 }
 
+// Top returns the first finding at the result's worst class, the one to show
+// where there is room for only one. Findings are path-ordered, so Findings[0]
+// is not the severe one in general.
+func (r *Result) Top() *Finding {
+	m := r.Max()
+	for i := range r.Findings {
+		if r.Findings[i].Class == m {
+			return &r.Findings[i]
+		}
+	}
+	return nil
+}
+
 // ExitCode implements the CLI contract: 0 ok/warn, 1 breaking (PRD 1.7).
 func (r *Result) ExitCode() int {
 	if r.Max() == Breaking {
@@ -114,6 +127,16 @@ func (r *Result) sort() {
 		}
 		return strings.Compare(a.Message, b.Message)
 	})
+}
+
+// article prefixes a JSON kind with its indefinite article so findings read as
+// prose ("an object", "a string") rather than as a telegram.
+func article(kind string) string {
+	switch kind {
+	case "object", "array", "integer":
+		return "an " + kind
+	}
+	return "a " + kind
 }
 
 // kindFamily folds "integer" into "number": integer↔float transitions are

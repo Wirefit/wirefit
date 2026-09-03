@@ -485,9 +485,9 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 				e.Findings = r.Findings
 				switch r.Max() {
 				case diff.Breaking:
-					e.Status, e.Detail = matrixStatusIncompatible, r.Findings[0].Message
+					e.Status, e.Detail = matrixStatusIncompatible, detailOf(r.Top())
 				case diff.Warning:
-					e.Status, e.Detail = matrixStatusWarning, r.Findings[0].Message
+					e.Status, e.Detail = matrixStatusWarning, detailOf(r.Top())
 				default:
 					e.Status = matrixStatusOK
 				}
@@ -591,6 +591,18 @@ func cutString(s, sep string) (string, string, bool) {
 		}
 	}
 	return s, "", false
+}
+
+// detailOf renders one finding for a matrix cell, where the path has no column
+// of its own and would otherwise be lost.
+func detailOf(f *diff.Finding) string {
+	if f == nil {
+		return ""
+	}
+	if f.Path == "" {
+		return f.Message
+	}
+	return f.Path + " " + f.Message
 }
 
 func trimJoin(a, b string) string {

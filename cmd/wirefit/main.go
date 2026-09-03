@@ -212,7 +212,7 @@ func cmdCompat(args []string) int {
 	provider := fs.String("provider", "", "IR file: provider schema")
 	consumer := fs.String("consumer", "", "IR file: consumer schema")
 	dirFlag := fs.String("direction", "response", "response|event|request (or p2c|c2p)")
-	strict := fs.Bool("strict-parser", false, "parsing side rejects unknown fields")
+	strict := fs.Bool("strict-parser", false, "receiving side rejects unknown fields")
 	format := fs.String("format", "text", "text|json")
 	if fs.Parse(args) != nil {
 		return 2

@@ -442,7 +442,7 @@ func TestPromoEdgesInSyncPreservesCompatibility(t *testing.T) {
 		if !e.InSync || e.Status != matrixStatusIncompatible {
 			t.Errorf("in-sync incompatible edge = %+v, want InSync + INCOMPATIBLE", e)
 		}
-		if !strings.Contains(e.Detail, "in sync:") || !strings.Contains(e.Detail, "parser requires field") {
+		if !strings.Contains(e.Detail, "in sync:") || !strings.Contains(e.Detail, "receiver requires this field") {
 			t.Errorf("detail = %q, want sync state and true compatibility", e.Detail)
 		}
 	}

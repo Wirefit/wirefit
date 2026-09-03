@@ -445,9 +445,9 @@ func promoEdges(st *store.Store, pipeline []string, staleBefore time.Time, stale
 				default:
 					switch dr.res.Max() {
 					case diff.Breaking:
-						e.Status, e.Detail = matrixStatusIncompatible, dr.res.Findings[0].Message
+						e.Status, e.Detail = matrixStatusIncompatible, detailOf(dr.res.Top())
 					case diff.Warning:
-						e.Status, e.Detail = matrixStatusWarning, dr.res.Findings[0].Message
+						e.Status, e.Detail = matrixStatusWarning, detailOf(dr.res.Top())
 					default:
 						e.Status = matrixStatusOK
 					}
