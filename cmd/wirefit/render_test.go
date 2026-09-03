@@ -42,8 +42,8 @@ var matrixFixture = []matrixEdge{
 
 var promoFixture = []promoEdge{
 	{From: "dev", To: "staging", Service: "order-service", Side: "provides", Counterpart: "web-app",
-		Interaction: "orders.get-order", Status: matrixStatusIncompatible, Detail: "parser requires field <b>a</b>",
-		Findings: []diff.Finding{{Class: diff.Breaking, Rule: "field-missing", Path: "$.a", Message: "parser requires field <b>a</b>"}},
+		Interaction: "orders.get-order", Status: matrixStatusIncompatible, Detail: "receiver requires <b>a</b>",
+		Findings: []diff.Finding{{Class: diff.Breaking, Rule: "field-missing", Path: "$.a", Message: "receiver requires <b>a</b>"}},
 		ConsumerBody: &ir.Schema{Type: "object", Required: []string{"a"}, Properties: map[string]*ir.Schema{
 			"a": {Type: "string", Scalar: "string"},
 		}},
@@ -232,7 +232,7 @@ func TestRenderMatrixHTMLPromotions(t *testing.T) {
 		`<div class="detail">1 untracked</div>`,
 		`<h3>Promotion checks</h3>`,
 		`<a href="#promotion-c-order-service-orders.get-order-p0"><code>provides orders.get-order ⇐ web-app</code></a>`,
-		"parser requires field &lt;b&gt;a&lt;/b&gt;",
+		"receiver requires &lt;b&gt;a&lt;/b&gt;",
 		`<section class="view" id="promotion-c-order-service-orders.get-order-p0">`,
 		`<a class="back-link" href="#c-order-service-orders.get-order" aria-label="Back to contract" title="Back to contract"><span aria-hidden="true">←</span></a>`,
 		`<p class="eyebrow">Promotion compatibility</p><h1>web-app → order-service/orders.get-order</h1>`,
@@ -478,7 +478,7 @@ func TestBuildServiceAttentionIncludesPromotionReason(t *testing.T) {
 		item.Role != "provider" ||
 		item.Relationship != "web-app → order-service/orders.get-order" ||
 		item.Status != matrixStatusIncompatible || item.DetailSlug != "promotion-order" ||
-		!strings.Contains(item.Detail, "parser requires field") {
+		!strings.Contains(item.Detail, "receiver requires") {
 		t.Errorf("provider promotion attention = %+v", item)
 	}
 }
@@ -497,7 +497,7 @@ func TestRenderMatrixHTMLServicePromotionGroups(t *testing.T) {
 		`<strong>staging → prod</strong><span>1 of 1 check could not be verified</span>`,
 		`aria-label="Unverified: 1 of 1 check could not be verified"`,
 		`<a href="#promotion-c-order-service-orders.get-order-p0"><code>web-app → order-service/orders.get-order</code></a>`,
-		`parser requires field &lt;b&gt;a&lt;/b&gt;`,
+		`receiver requires &lt;b&gt;a&lt;/b&gt;`,
 	} {
 		if !strings.Contains(service, want) {
 			t.Errorf("order-service promotion view missing %q\n%s", want, service)
