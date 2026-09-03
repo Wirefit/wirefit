@@ -13,6 +13,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -181,7 +182,7 @@ func (s *Store) Publish(m *manifest.Manifest, manifestSrc string,
 	if noCommit {
 		return nil
 	}
-	return s.commitAndPush(m.Service)
+	return s.CommitPaths("wirefit publish: "+m.Service, filepath.Join("contracts", m.Service))
 }
 
 // pruneStale deletes IR files for interactions no longer in the manifest:
@@ -251,37 +252,74 @@ func (s *Store) git(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-func (s *Store) commitAndPush(service string) error {
+// CommitPaths commits (and pushes, when a remote exists) only the given repo paths.
+func (s *Store) CommitPaths(msg string, paths ...string) error {
+	if len(paths) == 0 {
+		return fmt.Errorf("git commit: no paths specified")
+	}
 	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); os.IsNotExist(err) {
 		return nil // plain directory: write-only mode (demos, tests)
 	}
-	if _, err := s.git("add", "-A", filepath.Join("contracts", service)); err != nil {
-		return fmt.Errorf("git add: %w", err)
+	if out, err := s.git(withPaths([]string{"add", "-A"}, paths)...); err != nil {
+		return gitCommandError("git add", out, err)
 	}
-	// No staged changes for THIS service → idempotent no-op (re-publishing identical
-	// content). We check the staged diff for the service path, not whole-repo status,
-	// so an otherwise-dirty repo (untracked _blobs, other services) doesn't make the
-	// commit fail with "nothing to commit".
-	if _, err := s.git("diff", "--cached", "--quiet", "--", filepath.Join("contracts", service)); err == nil {
+	changed, err := s.hasStagedChanges(paths)
+	if err != nil {
+		return err
+	}
+	if !changed {
 		return nil
 	}
-	if out, err := s.git("commit", "-m", "wirefit publish: "+service); err != nil {
-		return fmt.Errorf("git commit: %s: %w", out, err)
+	if out, err := s.git(withPaths([]string{"commit", "--only", "-m", msg}, paths)...); err != nil {
+		return gitCommandError("git commit", out, err)
 	}
-	if remotes, _ := s.git("remote"); remotes == "" {
+	remotes, err := s.git("remote")
+	if err != nil {
+		return gitCommandError("git remote", remotes, err)
+	}
+	if remotes == "" {
 		return nil // local-only repo
 	}
-	// Push with pull-rebase retry against concurrent publishes (PRD 1.8).
+
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if out, err := s.git("push"); err == nil {
 			return nil
 		} else {
-			lastErr = fmt.Errorf("git push: %s: %w", out, err)
+			lastErr = gitCommandError("git push", out, err)
 		}
-		if out, err := s.git("pull", "--rebase"); err != nil {
-			return fmt.Errorf("git pull --rebase: %s: %w", out, err)
+		if attempt == 2 {
+			break
+		}
+		if out, err := s.git("pull", "--rebase", "--autostash"); err != nil {
+			return gitCommandError("git pull --rebase", out, err)
 		}
 	}
 	return lastErr
+}
+
+func (s *Store) hasStagedChanges(paths []string) (bool, error) {
+	out, err := s.git(withPaths([]string{"diff", "--cached", "--quiet"}, paths)...)
+	if err == nil {
+		return false, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return true, nil
+	}
+	return false, gitCommandError("git diff --cached", out, err)
+}
+
+func withPaths(args, paths []string) []string {
+	out := make([]string, 0, len(args)+1+len(paths))
+	out = append(out, args...)
+	out = append(out, "--")
+	return append(out, paths...)
+}
+
+func gitCommandError(command, output string, err error) error {
+	if output == "" {
+		return fmt.Errorf("%s: %w", command, err)
+	}
+	return fmt.Errorf("%s: %s: %w", command, output, err)
 }

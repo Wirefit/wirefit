@@ -120,34 +120,3 @@ func (s *Store) ReadBlob(hash string) (*ir.Schema, error) {
 	}
 	return sch, nil
 }
-
-// CommitPaths commits (and pushes, when a remote exists) arbitrary repo paths.
-func (s *Store) CommitPaths(msg string, paths ...string) error {
-	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); os.IsNotExist(err) {
-		return nil // plain directory: write-only mode (demos, tests)
-	}
-	if _, err := s.git(append([]string{"add", "-A"}, paths...)...); err != nil {
-		return fmt.Errorf("git add: %w", err)
-	}
-	if out, _ := s.git("status", "--porcelain"); out == "" {
-		return nil
-	}
-	if out, err := s.git("commit", "-m", msg); err != nil {
-		return fmt.Errorf("git commit: %s: %w", out, err)
-	}
-	if remotes, _ := s.git("remote"); remotes == "" {
-		return nil
-	}
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if _, err := s.git("push"); err == nil {
-			return nil
-		} else {
-			lastErr = fmt.Errorf("git push: %w", err)
-		}
-		if out, err := s.git("pull", "--rebase"); err != nil {
-			return fmt.Errorf("git pull --rebase: %s: %w", out, err)
-		}
-	}
-	return lastErr
-}

@@ -5,14 +5,12 @@
 package policy
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/wirefit/wirefit/internal/diff"
+	"github.com/wirefit/wirefit/internal/yamlx"
 )
 
 type Rule struct {
@@ -43,9 +41,7 @@ func Load(contractsRepoDir string) (*Policy, error) {
 		return nil, err
 	}
 	var pol Policy
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&pol); err != nil {
+	if err := yamlx.StrictUnmarshal(data, &pol); err != nil {
 		return nil, fmt.Errorf("%s: %w", p, err)
 	}
 	for rule, r := range pol.Rules {

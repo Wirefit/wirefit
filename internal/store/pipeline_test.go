@@ -50,6 +50,11 @@ func TestLoadPipeline(t *testing.T) {
 			content: "schema-version: 1\nenvs: [dev, Prod]\n",
 			wantErr: "must match",
 		},
+		{
+			name:    "second YAML document rejected",
+			content: "schema-version: 1\nenvs: [dev, prod]\n---\nschema-version: 1\nenvs: [dev, evil]\n",
+			wantErr: "multiple YAML documents",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

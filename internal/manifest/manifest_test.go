@@ -129,6 +129,18 @@ func TestUnknownKeysRejected(t *testing.T) {
 	}
 }
 
+// A second document would be dropped in silence by a bare Decode, quietly
+// discarding half of someone's contracts.yaml.
+func TestSecondDocumentRejected(t *testing.T) {
+	_, err := Parse([]byte(valid + "---\nservice: other-service\nschema-version: 1\n"))
+	if err == nil {
+		t.Fatal("second document must error, not be silently ignored")
+	}
+	if !strings.Contains(err.Error(), "multiple YAML documents") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateServiceName(t *testing.T) {
 	for _, name := range []string{"orders", "order-service", "service-2"} {
 		if err := ValidateServiceName(name); err != nil {

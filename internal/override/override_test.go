@@ -3,6 +3,7 @@ package override
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,5 +104,17 @@ func TestMissingFileIsEmpty(t *testing.T) {
 	f, errs := Load(filepath.Join(t.TempDir(), "nope.yaml"), now)
 	if len(errs) != 0 || len(f.Overrides) != 0 {
 		t.Fatal("missing overrides file must be empty, not an error")
+	}
+}
+
+// A second document would be dropped in silence by a bare Decode, so an
+// override someone believed was in force would never load.
+func TestSecondDocumentRejected(t *testing.T) {
+	_, errs := Load(write(t, valid+"---\noverrides: []\n"), now)
+	if len(errs) == 0 {
+		t.Fatal("second document must error, not be silently ignored")
+	}
+	if !strings.Contains(errs[0].Error(), "multiple YAML documents") {
+		t.Errorf("unexpected error: %v", errs[0])
 	}
 }

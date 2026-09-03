@@ -111,11 +111,68 @@ func TestParseRejectsUnknownKeywordsAndBadIR(t *testing.T) {
 		`{"oneOf":[{"type":"object"}]}`,                          // union without discriminator
 		`{"x-ct-discriminator":"t","oneOf":[{"type":"object"}]}`, // branch without value
 		`{"type":"string","x-ct-scalar":"int64"}`,                // scalar/type mismatch
+
+		// Shape rules. Every one of these used to parse, and every one of
+		// them compares as compatible with something it should not.
+		`{"type":"banana"}`,           // type outside the subset
+		`{"type":"array"}`,            // array with no element schema
+		`{"type":"array","items":{}}`, // ... nor does a shapeless element help
+		`{}`,                          // no shape at all: matches everything
+		`{"x-ct-nullable":true}`,      // still no shape
+		`{"required":["a"]}`,          // fields but no shape
+		`{"type":"string"}`,           // JSON type alone does not pin the contract
+		`{"type":"object","items":{"x-ct-scalar":"string"}}`,                                                    // object carrying an array field
+		`{"type":"object","enum":["a"]}`,                                                                        // enum is a scalar refinement
+		`{"type":"array","items":{"x-ct-scalar":"string"},"properties":{}}`,                                     // two shapes at once
+		`{"x-ct-recursive":true,"type":"object"}`,                                                               // recursion marker carrying a shape
+		`{"x-ct-discriminator":"t","type":"object","oneOf":[{"type":"object","x-ct-discriminator-value":"a"}]}`, // union carrying a shape
+		`{"type":"object","additionalProperties":{}}`,                                                           // shapeless map value
+		`{"type":"object","properties":{"a":{"type":"array"}}}`,                                                 // rules apply at depth
 	}
 	for _, c := range cases {
 		if _, err := Parse([]byte(c)); err == nil {
 			t.Errorf("expected error for %s", c)
 		}
+	}
+}
+
+func TestParseAcceptsEveryLegalShape(t *testing.T) {
+	cases := []string{
+		`{"x-ct-scalar":"string"}`, // Normalize fills the JSON type in
+		`{"type":"string","x-ct-scalar":"string","enum":["a","b"]}`,
+		`{"type":"object"}`, // closed object with no properties: an empty struct
+		`{"type":"object","properties":{"a":{"x-ct-scalar":"int64"}},"required":["a"]}`,
+		`{"type":"object","additionalProperties":true}`, // legacy untyped map
+		`{"type":"object","additionalProperties":{"x-ct-scalar":"string"}}`,
+		`{"type":"array","items":{"x-ct-scalar":"string"}}`,
+		`{"type":"array","items":{"x-ct-recursive":true}}`,                      // self-referential struct
+		`{"type":"array","items":{"x-ct-recursive":true,"x-ct-nullable":true}}`, // ... reached by pointer
+		`{"x-ct-discriminator":"kind","oneOf":[` +
+			`{"type":"object","x-ct-discriminator-value":"a","properties":{"x":{"x-ct-scalar":"string"}}},` +
+			`{"type":"object","x-ct-discriminator-value":"b"}]}`,
+
+		// A consumer projection says "I read this field" and deliberately
+		// asserts nothing about its type, so a shapeless property is legal
+		// where a shapeless root, element or map value is not.
+		`{"type":"object","properties":{"count":{}}}`,
+		`{"type":"object","properties":{"count":{"x-ct-nullable":true}}}`,
+	}
+	for _, c := range cases {
+		if _, err := Parse([]byte(c)); err != nil {
+			t.Errorf("Parse(%s): %v", c, err)
+		}
+	}
+}
+
+// json.Decoder is a stream reader: without an explicit check it decodes the
+// first document and never looks at the rest of the file.
+func TestParseRejectsTrailingDocument(t *testing.T) {
+	_, err := Parse([]byte(`{"type":"object"} {"type":"array","items":{"x-ct-scalar":"string"}}`))
+	if err == nil {
+		t.Fatal("trailing document must error, not be silently ignored")
+	}
+	if !strings.Contains(err.Error(), "trailing data") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
