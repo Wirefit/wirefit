@@ -252,7 +252,7 @@ split it into two references.
 ### 5.4 Go (`extractors/golang/README.md`)
 Reflection via a program generated *inside your module* (`.wirefit/gen/`, transient) — so
 `internal/` packages just work. The `#TypeName` selector must be a Go identifier. Pointer
-→ nullable; `,omitempty` → optional; embedded structs flatten. No enums/unions (language
+→ nullable; `,omitempty`/`,omitzero` → optional; embedded `T` and `*T` flatten. No enums/unions (language
 limitation — use importers for schema-native payloads). `uint`/`uint64` and
 `json.RawMessage` fail loudly.
 
