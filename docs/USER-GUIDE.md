@@ -158,6 +158,9 @@ An unmatched reference fails with an actionable hint naming the `extractors:` en
 
 Exit codes everywhere: **0** ok/warnings · **1** breaking · **2** config/input error.
 
+A `--report` path that cannot be created or written is a **2**: a CI job would
+otherwise post no comment and still report success.
+
 | command | purpose | key flags |
 |---|---|---|
 | `wirefit init` | scaffold a manifest + DTO suggestions | `--service`, `--scan`, `--force` |

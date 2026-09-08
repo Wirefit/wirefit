@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/wirefit/wirefit/internal/diff"
@@ -144,13 +145,35 @@ func verdictLine(breaking bool, counts string) string {
 
 const coldStartNote = "cold start: no consumers registered, breaking downgraded to warning"
 
-func printResult(r *diff.Result, format string) {
-	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(r)
-		return
+// encodeJSONStdout writes the machine-readable form of a result. A caller is
+// parsing this, so a short write or broken pipe is a tool failure, not output
+// to drop silently.
+func encodeJSONStdout(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+// writeReport writes a report file the user named on the command line. Unlike
+// the best-effort .wirefit/last-check.json cache, this one is load-bearing: a
+// CI job that cannot write it would post no comment while still reporting
+// success, so callers turn a failure here into exit code 2.
+func writeReport(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func printResult(r *diff.Result, format string) error {
+	if format == "json" {
+		return encodeJSONStdout(r)
+	}
+	printResultText(r)
+	return nil
+}
+
+func printResultText(r *diff.Result) {
 	if len(r.Findings) == 0 {
 		fmt.Println("no contract-relevant changes")
 		return
