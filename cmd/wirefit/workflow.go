@@ -184,20 +184,19 @@ func externals(entries []manifest.ExternalExtractor) (suffix, wildcard []extract
 	byCmd := map[string]*extract.External{}
 	for _, x := range entries {
 		if x.Match == "*" {
-			wildcard = append(wildcard, &extract.External{Suffixes: []string{"*"}, Command: strings.Fields(x.Command)})
+			wildcard = append(wildcard, &extract.External{Suffixes: []string{"*"}, Command: x.Command})
 			continue
 		}
 		if importer.IsSpec(x.Match) {
 			fmt.Fprintf(os.Stderr, "wirefit extract: warning: extractor for %s never runs; the built-in importer handles that format\n", x.Match)
 			continue
 		}
-		cmd := strings.Fields(x.Command)
-		key := strings.Join(cmd, "\x00")
+		key := strings.Join(x.Command, "\x00")
 		if e := byCmd[key]; e != nil {
 			e.Suffixes = append(e.Suffixes, x.Match)
 			continue
 		}
-		e := &extract.External{Suffixes: []string{x.Match}, Command: cmd}
+		e := &extract.External{Suffixes: []string{x.Match}, Command: x.Command}
 		byCmd[key] = e
 		suffix = append(suffix, e)
 	}

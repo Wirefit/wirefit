@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -42,9 +43,9 @@ func TestExtractPlan(t *testing.T) {
 
 func TestExternalsMergeByCommand(t *testing.T) {
 	reg, wild := externals([]manifest.ExternalExtractor{
-		{Match: ".py", Command: "wirefit-py --strict"},
-		{Match: ".rb", Command: "wirefit-rb"},
-		{Match: ".pyi", Command: "wirefit-py --strict"},
+		{Match: ".py", Command: manifest.Command{"wirefit-py", "--strict"}},
+		{Match: ".rb", Command: manifest.Command{"wirefit-rb"}},
+		{Match: ".pyi", Command: manifest.Command{"wirefit-py", "--strict"}},
 	})
 	if len(reg) != 2 || len(wild) != 0 {
 		t.Fatalf("len(reg), len(wild) = %d, %d, want 2, 0", len(reg), len(wild))
@@ -64,7 +65,7 @@ func TestExternalsMergeByCommand(t *testing.T) {
 
 func TestExternalsSkipsImporterSuffixes(t *testing.T) {
 	reg, wild := externals([]manifest.ExternalExtractor{
-		{Match: ".proto", Command: "my-proto-tool"},
+		{Match: ".proto", Command: manifest.Command{"my-proto-tool"}},
 	})
 	if len(reg) != 0 || len(wild) != 0 {
 		t.Errorf("len(reg), len(wild) = %d, %d, want 0, 0: importer-owned suffixes never reach an external", len(reg), len(wild))
@@ -73,8 +74,8 @@ func TestExternalsSkipsImporterSuffixes(t *testing.T) {
 
 func TestExternalsWildcardSeparated(t *testing.T) {
 	reg, wild := externals([]manifest.ExternalExtractor{
-		{Match: ".ts", Command: "wirefit-ts"},
-		{Match: "*", Command: "wirefit-java --build-tool gradle"},
+		{Match: ".ts", Command: manifest.Command{"wirefit-ts"}},
+		{Match: "*", Command: manifest.Command{"wirefit-java", "--build-tool", "gradle"}},
 	})
 	if len(reg) != 1 || len(wild) != 1 {
 		t.Fatalf("len(reg), len(wild) = %d, %d, want 1, 1", len(reg), len(wild))
@@ -85,5 +86,17 @@ func TestExternalsWildcardSeparated(t *testing.T) {
 	}
 	if !java.Match("com.acme.Order") || !java.Match("weird.xyz#T") {
 		t.Error("wildcard external must match any ref")
+	}
+}
+
+func TestExtractorTestRejectsUnknownRole(t *testing.T) {
+	dir := t.TempDir()
+	cases := filepath.Join(dir, "cases.yaml")
+	if err := os.WriteFile(cases, []byte("cases:\n  - {name: Scalars, spec: \"fixtures/scalars.py#Scalars\", role: banana}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// "never-spawned" would fail loudly if the role check did not run first.
+	if code := cmdExtractorTest([]string{"--cases", cases, "--project", dir, "never-spawned"}); code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
 	}
 }

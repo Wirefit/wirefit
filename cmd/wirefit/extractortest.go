@@ -63,7 +63,11 @@ func cmdExtractorTest(args []string) int {
 		}
 		role := c.Role
 		if role == "" {
-			role = "consumed"
+			role = extproto.RoleConsumed
+		}
+		if !extproto.ValidRole(role) {
+			fmt.Fprintf(os.Stderr, "wirefit extractor-test: case %s: role %q must be %s or %s\n", c.Name, role, extproto.RoleProvided, extproto.RoleConsumed)
+			return 2
 		}
 		req.Specs = append(req.Specs, extproto.Spec{Ref: c.Spec, Role: role})
 		covered[c.Name] = true

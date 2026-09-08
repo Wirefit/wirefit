@@ -23,7 +23,9 @@ stay built into the core.
 ## Wire format
 
 Request on **stdin**, response on **stdout**, both JSON. Diagnostics go to stderr.
-Exit non-zero (and/or set `error`) on failure.
+Exit non-zero (and/or set `error`) on failure. The extractor is spawned with its
+**working directory set to `projectDir`**, which is always an absolute path — resolve
+relative refs against either, they agree.
 
 ```jsonc
 // stdin
@@ -55,6 +57,8 @@ Exit non-zero (and/or set `error`) on failure.
   is the extractor's own convention; wirefit routes by the manifest `extractors:` matcher.
 - `role` is `provided` (service emits this shape) or `consumed` (service parses it).
   Honor it wherever your source distinguishes input/output semantics (defaults, transforms).
+  Nothing else is a role: wirefit rejects any other value before spawning the extractor,
+  and your extractor should reject it too rather than defaulting one way.
 - Emitted documents must be valid wirefit IR (SPEC §7): the JSON Schema subset with
   `x-ct-scalar`, `x-ct-nullable`, `x-ct-recursive`, `x-ct-discriminator(-value)`.
   wirefit re-validates and canonicalizes everything — but invalid IR fails the run.
@@ -89,11 +93,21 @@ Exit non-zero (and/or set `error`) on failure.
 # contracts.yaml
 extractors:
   - match: ".py"                  # file-suffix match on the dto reference
-    command: "wirefit-extract-py" # resolved via PATH, executed in the service repo
+    command: "wirefit-extract-py" # argv[0] resolved via PATH, run in the service repo
 consumes:
   - id: orders.get-order
     provider: order-service
     dto: src/models.py#OrderView
+```
+
+`command` is an argv, not a shell line: no quoting, globbing or redirection. A string is
+split on whitespace, which covers the usual case. Write it as a list when an argument
+contains spaces — the only form that can express one:
+
+```yaml
+extractors:
+  - match: "*"
+    command: ["wirefit-java", "--classpath", "/opt/my libs/app.jar"]
 ```
 
 ## Conformance
