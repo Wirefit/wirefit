@@ -31,6 +31,11 @@ func Serve(fn func(projectDir string, specs []extproto.Spec) (map[string]json.Ra
 	if req.SchemaVersion != extproto.SchemaVersion {
 		return respond(nil, fmt.Errorf("protocol version %d, want %d", req.SchemaVersion, extproto.SchemaVersion))
 	}
+	for _, spec := range req.Specs {
+		if !extproto.ValidRole(spec.Role) {
+			return respond(nil, fmt.Errorf("%s: role %q must be %q or %q", spec.Ref, spec.Role, extproto.RoleProvided, extproto.RoleConsumed))
+		}
+	}
 	schemas, err := fn(req.ProjectDir, req.Specs)
 	return respond(schemas, err)
 }

@@ -125,6 +125,8 @@ extractors:                   # external extractors (protocol v1). Route DTO ref
     command: "wirefit-java --build-tool maven"   # java config rides on the command
   # - match: ".py"
   #   command: "wirefit-py --python .venv/bin/python"
+  #   # command is an argv, split on whitespace; use a list when an argument
+  #   # contains spaces: ["wirefit-java", "--classpath", "/opt/my libs/app.jar"]
 
 settings:                     # all optional
   unknown-fields: ignore      # reject if your deserializer is strict (flips rules, §7)

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/wirefit/wirefit/internal/yamlx"
 )
@@ -25,8 +28,33 @@ type Manifest struct {
 type ExternalExtractor struct {
 	// Match: a file suffix like ".py", or "*", the single fallback for
 	// suffix-less refs (java FQNs), consulted after the built-in routes.
-	Match   string `yaml:"match"`
-	Command string `yaml:"command"` // executable (PATH-resolved), run in the service repo
+	Match   string  `yaml:"match"`
+	Command Command `yaml:"command"` // argv; argv[0] is PATH-resolved, run in the service repo
+}
+
+// Command is an extractor argv. YAML accepts a plain string, split on
+// whitespace ("wirefit-py --python .venv/bin/python"), or an explicit
+// sequence — the only form that can carry an argument containing spaces.
+type Command []string
+
+func (c *Command) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := n.Decode(&s); err != nil {
+			return err
+		}
+		*c = strings.Fields(s)
+		return nil
+	case yaml.SequenceNode:
+		var argv []string
+		if err := n.Decode(&argv); err != nil {
+			return err
+		}
+		*c = argv
+		return nil
+	}
+	return fmt.Errorf("line %d: command must be a string or a list of arguments", n.Line)
 }
 
 type Interaction struct {
@@ -124,7 +152,7 @@ func (m *Manifest) Validate() []error {
 		case len(x.Match) < 2 || x.Match[0] != '.':
 			fail("extractors[%d]: match must be a file suffix like .py, or \"*\" for suffix-less refs, got %q", i, x.Match)
 		}
-		if x.Command == "" {
+		if len(x.Command) == 0 || x.Command[0] == "" {
 			fail("extractors[%d]: command is required", i)
 		}
 	}

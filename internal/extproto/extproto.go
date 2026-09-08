@@ -12,9 +12,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 const SchemaVersion = 1
+
+// The only two roles a spec may carry (docs/extractor-protocol.md).
+const (
+	RoleProvided = "provided"
+	RoleConsumed = "consumed"
+)
+
+func ValidRole(role string) bool { return role == RoleProvided || role == RoleConsumed }
 
 // Spec is one DTO reference to extract.
 type Spec struct {
@@ -46,12 +55,26 @@ func Invoke(command []string, req Request) (*Response, error) {
 	if len(command) == 0 {
 		return nil, fmt.Errorf("empty extractor command")
 	}
+	for _, s := range req.Specs {
+		if !ValidRole(s.Role) {
+			return nil, fmt.Errorf("extractor %s: %s: role %q must be %q or %q", command[0], s.Ref, s.Role, RoleProvided, RoleConsumed)
+		}
+	}
+	// The extractor runs in the service project and is promised an absolute
+	// projectDir: a relative one would otherwise resolve against that new
+	// working directory rather than against wirefit's.
+	dir, err := filepath.Abs(req.ProjectDir)
+	if err != nil {
+		return nil, err
+	}
+	req.ProjectDir = dir
 	req.SchemaVersion = SchemaVersion
 	in, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Dir = dir
 	cmd.Stdin = bytes.NewReader(in)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
