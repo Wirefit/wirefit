@@ -7,11 +7,12 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/wirefit/wirefit/internal/extrun"
 )
 
-func TestEnsureExtractorWritesScriptToCache(t *testing.T) {
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
+func TestCacheEnsureExtractorWritesScript(t *testing.T) {
+	cache := useTempCache(t)
 
 	got, err := EnsureExtractor()
 	if err != nil {
@@ -25,8 +26,8 @@ func TestEnsureExtractorWritesScriptToCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "wirefit Python extractor") {
-		t.Fatalf("cached script does not look like the embedded extractor")
+	if string(data) != extractorSource {
+		t.Fatal("cached script differs from the embedded extractor")
 	}
 }
 
@@ -59,8 +60,7 @@ printf '{}'
 }
 
 func TestRunUsesPythonCommand(t *testing.T) {
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
+	cache := useTempCache(t)
 	log := filepath.Join(t.TempDir(), "args.txt")
 	python := fakePython(t, `#!/bin/sh
 if [ "$1" = "-c" ]; then
@@ -87,8 +87,7 @@ printf '{"ok":{"type":"string"}}'
 }
 
 func TestRunResolvesRelativePythonFromProjectDir(t *testing.T) {
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
+	cache := useTempCache(t)
 	root := t.TempDir()
 	project := filepath.Join(root, "service")
 	venv := filepath.Join(project, ".venv", "bin")
@@ -121,6 +120,15 @@ printf '{"ok":{"type":"string"}}'
 	if string(data) != want {
 		t.Fatalf("fake python args:\n%s\nwant:\n%s", data, want)
 	}
+}
+
+func useTempCache(t *testing.T) string {
+	t.Helper()
+	cache := t.TempDir()
+	old := extrun.UserCacheDir
+	extrun.UserCacheDir = func() (string, error) { return cache, nil }
+	t.Cleanup(func() { extrun.UserCacheDir = old })
+	return cache
 }
 
 func fakePython(t *testing.T, body string) string {

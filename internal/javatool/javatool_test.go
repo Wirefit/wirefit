@@ -1,9 +1,36 @@
 package javatool
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wirefit/wirefit/internal/extrun"
 )
+
+func TestCacheDir(t *testing.T) {
+	root := t.TempDir()
+	old := extrun.UserCacheDir
+	extrun.UserCacheDir = func() (string, error) { return root, nil }
+	t.Cleanup(func() { extrun.UserCacheDir = old })
+
+	got, err := cacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "wirefit", "java-extractor", extractorVersion)
+	if got != want {
+		t.Fatalf("cache = %q, want %q", got, want)
+	}
+	info, err := os.Stat(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("cache %q is not a directory", got)
+	}
+}
 
 // Run with no classpath and --build-tool none must fail before ever shelling out
 // to java: it proves the option threading reaches ResolveClasspath and that the
