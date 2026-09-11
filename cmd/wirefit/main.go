@@ -203,7 +203,10 @@ func cmdDiff(args []string) int {
 		ProviderRejectsUnknown: *providerReject,
 		ColdStart:              len(consumers) == 0,
 	})
-	printResult(r, *format)
+	if err := printResult(r, *format); err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit diff:", err)
+		return 2
+	}
 	return r.ExitCode()
 }
 
@@ -237,6 +240,9 @@ func cmdCompat(args []string) int {
 		return 2
 	}
 	r := diff.Compat(p, c, diff.CompatOptions{Direction: dir, StrictParser: *strict})
-	printResult(r, *format)
+	if err := printResult(r, *format); err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit compat:", err)
+		return 2
+	}
 	return r.ExitCode()
 }

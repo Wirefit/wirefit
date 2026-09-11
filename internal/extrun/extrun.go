@@ -28,11 +28,14 @@ func Run(name string, cmd *exec.Cmd) (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
+// UserCacheDir may be replaced by nonparallel tests; restore it with t.Cleanup.
+var UserCacheDir = os.UserCacheDir
+
 // CacheDir returns <UserCacheDir>/wirefit/<name>/<version>, created. name is the
 // per-extractor cache namespace (e.g. "java-extractor"); version keys the cache
 // so a bump invalidates stale compiled/installed artifacts.
 func CacheDir(name, version string) (string, error) {
-	base, err := os.UserCacheDir()
+	base, err := UserCacheDir()
 	if err != nil {
 		return "", err
 	}

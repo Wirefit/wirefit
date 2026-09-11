@@ -216,26 +216,28 @@ func cmdCanIDeploy(args []string) int {
 		}
 	}
 
-	if *reportFile != "" {
-		if err := os.MkdirAll(filepath.Dir(*reportFile), 0o755); err == nil {
-			_ = os.WriteFile(*reportFile, renderMarkdown(results, worst), 0o644)
+	if *format == "json" {
+		if err := encodeJSONStdout(results); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy:", err)
+			return 2
+		}
+	} else {
+		for _, key := range sortedResultKeys(results) {
+			fmt.Printf("· %s\n", key)
+			printResultText(results[key])
+			fmt.Println()
+		}
+		if worst == 0 {
+			fmt.Printf("wirefit can-i-deploy: SAFE to deploy to %s\n", *env)
+		} else {
+			fmt.Printf("wirefit can-i-deploy: DO NOT deploy to %s\n", *env)
 		}
 	}
-	if *format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(results)
-		return worst
-	}
-	for _, key := range sortedResultKeys(results) {
-		fmt.Printf("· %s\n", key)
-		printResult(results[key], "text")
-		fmt.Println()
-	}
-	if worst == 0 {
-		fmt.Printf("wirefit can-i-deploy: SAFE to deploy to %s\n", *env)
-	} else {
-		fmt.Printf("wirefit can-i-deploy: DO NOT deploy to %s\n", *env)
+	if *reportFile != "" {
+		if err := writeReport(*reportFile, renderMarkdown(results, worst)); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit can-i-deploy: --report:", err)
+			return 2
+		}
 	}
 	return worst
 }
@@ -399,13 +401,20 @@ func cmdMatrix(args []string) int {
 		printMatrixTerm(edges)
 		printPromoTerm(promos)
 	case "md":
-		os.Stdout.Write(renderMatrixMD(edges, promos))
+		if _, err := os.Stdout.Write(renderMatrixMD(edges, promos)); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+			return 2
+		}
 	case "html":
-		os.Stdout.Write(renderMatrixHTML(edges, promos, pipeline, inv))
+		if _, err := os.Stdout.Write(renderMatrixHTML(edges, promos, pipeline, inv)); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+			return 2
+		}
 	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(newMatrixDoc(edges, promos))
+		if err := encodeJSONStdout(newMatrixDoc(edges, promos)); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit matrix:", err)
+			return 2
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "wirefit matrix: unknown format %q (term|md|html|json)\n", *format)
 		return 2

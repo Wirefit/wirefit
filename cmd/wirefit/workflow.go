@@ -366,23 +366,28 @@ func cmdCheck(args []string) int {
 	}
 
 	// Persist machine-readable results for `wirefit override add` auto-fill.
+	// Best-effort by design: this cache is a convenience, and losing it must
+	// not fail a check whose verdict is already known. An explicitly requested
+	// --report is the opposite — see below.
 	if lcJSON, err := json.Marshal(results); err == nil {
 		if err := os.MkdirAll(filepath.Dir(lastCheckFile), 0o755); err == nil {
 			_ = os.WriteFile(lastCheckFile, lcJSON, 0o644)
 		}
 	}
+	if *format == "json" {
+		if err := encodeJSONStdout(results); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit check:", err)
+			return 2
+		}
+	} else {
+		printCheck(m.Service, results, worst)
+	}
 	if *reportFile != "" {
-		if err := os.MkdirAll(filepath.Dir(*reportFile), 0o755); err == nil {
-			_ = os.WriteFile(*reportFile, renderMarkdown(results, worst), 0o644)
+		if err := writeReport(*reportFile, renderMarkdown(results, worst)); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit check: --report:", err)
+			return 2
 		}
 	}
-	if *format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(results)
-		return worst
-	}
-	printCheck(m.Service, results, worst)
 	return worst
 }
 
