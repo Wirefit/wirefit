@@ -1,7 +1,9 @@
 # wirefit — launch checklist
 
-All five roadmap phases are implemented and verified (v0.2.0 + toolchain-baseline commit).
-This is the path from "done on disk" to "public project". Order matters in §1–§3;
+All five roadmap phases are implemented. The latest tag is `v0.2.0`; `v0.3.0`
+is the next planned release and has not been tagged or published. Release readiness
+still requires the checks below, including a green Python extractor protocol CI step.
+This is the path from development to the first published release. Order matters in §1–§3;
 the rest can be parallelized.
 
 ## 1. Claim the names (do this FIRST — availability was verified 2026-06-09 and is point-in-time)
@@ -26,7 +28,7 @@ the rest can be parallelized.
 
 ## 3. First real release
 
-- [ ] Decide release version: recommend `v0.3.0` (v0.1/v0.2 exist as local milestones; first public tag should be fresh)
+- [x] Set the next planned release to `v0.3.0` (existing tags: `v0.1.0` and `v0.2.0`; source builds report `0.3.0-dev`).
 - [ ] Pre-tag review checklist (release-blocking, per PRD):
   - [ ] Extractor protocol v1 freeze review — once public, it's additive-only forever
   - [ ] IR keyword set review (SPEC §7) — same reasoning

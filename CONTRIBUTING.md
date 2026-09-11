@@ -11,10 +11,16 @@ Thanks for your interest! This project is young — the highest-value contributi
 
 ## Development
 
+Use Go 1.25, the baseline declared in `go.mod`. GitHub CI and release builds read
+that file; the GitLab component uses the matching Go 1.25 image.
+
 ```
 go test ./...                  # unit + rule corpus (no Java needed)
 extractors/java/test.sh        # extractor round-trip (needs JDK 17+)
 ```
+
+`go test ./cmd/wirefit -run '^TestVersionBuild$'` checks both the development
+version and release version injection by building and running the CLI locally.
 
 The full end-to-end consumer/provider demos live in
 [wirefit/examples](https://github.com/wirefit/examples) and run against a released `wirefit`.

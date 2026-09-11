@@ -14,7 +14,7 @@ import (
 	"github.com/wirefit/wirefit/internal/manifest"
 )
 
-const version = "0.1.0-dev"
+var version = "0.3.0-dev"
 
 func main() { os.Exit(run(os.Args[1:])) }
 

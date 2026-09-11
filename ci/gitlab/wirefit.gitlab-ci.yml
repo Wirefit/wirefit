@@ -16,7 +16,7 @@
 # treat as beta until the demo project on gitlab.com is wired up.
 
 .wirefit-base:
-  image: golang:1.24
+  image: golang:1.25
   variables:
     WIREFIT_MANIFEST: contracts.yaml
   before_script:

@@ -1,6 +1,6 @@
 # wirefit — language-agnostic contract checking
 
-> **Status: Phases 1–5 implemented (latest tag v0.3.0). Phase 3 core — Go extractor, public extractor protocol v1 + conformance kit,
+> **Status: Phases 1–5 implemented (latest tag v0.2.0; v0.3.0 is in development and has not been released). Phase 3 core — Go extractor, public extractor protocol v1 + conformance kit,
 > rule overrides with expiry (+ `override add` helper, org-level policy.yaml governance),
 > GitLab CI component (beta), markdown PR/MR reports. Gradle + Maven paths both CI-covered;
 > goreleaser snapshot verified; tsconfig path aliases confirmed working; 14-case corpus.
@@ -28,7 +28,8 @@ them to a language-neutral IR, and runs a direction-aware semantic diff in CI.
 
 ## Install
 
-wirefit is pure Go (`go 1.25`). Until the module is published, build from source:
+wirefit is pure Go. Use Go 1.25, the baseline declared in `go.mod`, to build the
+current development version from a checkout:
 
 ```
 go install ./cmd/wirefit          # builds to $(go env GOPATH)/bin, e.g. ~/go/bin
@@ -41,8 +42,8 @@ Put that directory on your PATH (add `export PATH="$HOME/go/bin:$PATH"` to your 
 go build -o /usr/local/bin/wirefit ./cmd/wirefit
 ```
 
-(`go install github.com/wirefit/wirefit/cmd/wirefit@latest` will work once the module is
-published.) IR extraction additionally needs a JDK 17+ for Java DTOs and Node for TS/Zod; the
+Source builds report `wirefit 0.3.0-dev`; GoReleaser injects the release version when
+building tagged releases. IR extraction additionally needs a JDK 17+ for Java DTOs and Node for TS/Zod; the
 Java extractor bootstraps its own pinned, checksum-verified Jackson jars on first run.
 
 ## Layout
