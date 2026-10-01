@@ -1,0 +1,69 @@
+name: wirefit compatibility matrix
+description: Validate published manifests and gate deployed contract compatibility
+
+inputs:
+  version:
+    description: Published WireFit Git ref to build
+    default: master
+  contracts-path:
+    description: Path to the checked-out contracts repository
+    default: .
+  stale-days:
+    description: Deploy records older than this are labeled stale
+    default: '30'
+
+runs:
+  using: composite
+  steps:
+    - name: Check out WireFit source
+      uses: actions/checkout@v4
+      with:
+        repository: Wirefit/wirefit
+        ref: ${{ inputs.version }}
+        path: .wirefit/source
+        persist-credentials: false
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: .wirefit/source/go.mod
+        cache-dependency-path: .wirefit/source/go.sum
+    - name: Install wirefit
+      shell: bash
+      working-directory: .wirefit/source
+      env:
+        WIREFIT_REF: ${{ inputs.version }}
+      run: |
+        go install -ldflags "-X main.version=$WIREFIT_REF" ./cmd/wirefit
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+    - name: Validate published manifests
+      shell: bash
+      env:
+        CONTRACTS_PATH: ${{ inputs.contracts-path }}
+      run: |
+        wirefit version
+        shopt -s nullglob
+        for manifest in "$CONTRACTS_PATH"/contracts/*/manifest.yaml; do
+          wirefit validate -f "$manifest"
+        done
+    - name: Render and gate the deployed matrix
+      shell: bash
+      env:
+        CONTRACTS_PATH: ${{ inputs.contracts-path }}
+        STALE_DAYS: ${{ inputs.stale-days }}
+      run: |
+        mkdir -p .wirefit/reports
+        status=0
+        for format in md json html; do
+          rc=0
+          wirefit matrix --contracts-repo "$CONTRACTS_PATH" --stale-days "$STALE_DAYS" \
+            --format "$format" -o ".wirefit/reports/matrix.$format" > /dev/null || rc=$?
+          if [ "$rc" -gt "$status" ]; then status="$rc"; fi
+          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+        done
+        cat .wirefit/reports/matrix.md
+        exit "$status"
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: compatibility-matrix
+        path: .wirefit/reports/
+        include-hidden-files: true
