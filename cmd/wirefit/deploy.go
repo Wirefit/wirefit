@@ -36,7 +36,10 @@ func cmdRecordDeploy(args []string) int {
 	fs := flag.NewFlagSet("record-deploy", flag.ContinueOnError)
 	mf := fs.String("f", "contracts.yaml", "manifest file")
 	repoDir := fs.String("contracts-repo", "", "path to a contracts repo working copy")
-	env := fs.String("env", "", "environment name (e.g. production)")
+	env := fs.String("env", "", "target environment")
+	irDir := fs.String("ir", "", "record extracted candidate IR instead of published contracts")
+	fromEnv := fs.String("from-env", "", "record the contract hashes deployed in this source environment")
+	service := fs.String("service", "", "with --from-env: the service to promote without a manifest checkout")
 	noCommit := fs.Bool("no-commit", false, "write files without git commit/push")
 	if fs.Parse(args) != nil {
 		return 2
@@ -46,71 +49,153 @@ func cmdRecordDeploy(args []string) int {
 		return 2
 	}
 	if err := store.ValidateEnvName(*env); err != nil {
-		fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
+		fmt.Fprintln(os.Stderr, "wirefit record-deploy: --env:", err)
 		return 2
 	}
-	m, code := loadManifest(*mf)
-	if code != 0 {
-		return code
+	irSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "ir" {
+			irSet = true
+		}
+	})
+	if irSet && (*irDir == "" || *fromEnv != "") {
+		fmt.Fprintln(os.Stderr, "wirefit record-deploy: --ir requires a non-empty path and cannot be combined with --from-env")
+		return 2
+	}
+	if *service != "" {
+		if *fromEnv == "" {
+			fmt.Fprintln(os.Stderr, "wirefit record-deploy: --service requires --from-env; use -f for a release candidate")
+			return 2
+		}
+		if err := manifest.ValidateServiceName(*service); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit record-deploy: --service:", err)
+			return 2
+		}
+	}
+	if *fromEnv != "" {
+		if err := store.ValidateEnvName(*fromEnv); err != nil {
+			fmt.Fprintln(os.Stderr, "wirefit record-deploy: --from-env:", err)
+			return 2
+		}
+		if *fromEnv == *env {
+			fmt.Fprintln(os.Stderr, "wirefit record-deploy: --from-env must differ from --env")
+			return 2
+		}
+	}
+	var m *manifest.Manifest
+	svc := *service
+	if svc == "" {
+		var code int
+		m, code = loadManifest(*mf)
+		if code != 0 {
+			return code
+		}
+		svc = m.Service
 	}
 	st, err := store.Open(*repoDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
 		return 2
 	}
-
-	entry := &store.ServiceLock{
-		RecordedAt: time.Now().UTC().Truncate(time.Second),
-		RecordedBy: recordedBy(),
-		Provides:   map[string]string{},
-		Consumes:   map[string]string{},
-	}
-	record := func(rel string, into map[string]string, key string) int {
-		p := filepath.Join(*repoDir, "contracts", m.Service, rel)
-		raw, err := os.ReadFile(p)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "wirefit record-deploy: %s not published; run `wirefit publish` before recording deploys (%v)\n", key, err)
-			return 2
+	var entry *store.ServiceLock
+	if *fromEnv != "" {
+		entry, err = deployRecordFromEnv(st, svc, *fromEnv)
+	} else {
+		root := *irDir
+		if root == "" {
+			root = filepath.Join(*repoDir, "contracts", svc)
 		}
-		hash, err := st.WriteBlob(raw)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
-			return 2
-		}
-		into[key] = hash
-		return 0
+		entry, err = deployRecordFromIR(st, m, root)
 	}
-	for _, p := range m.Provides {
-		if c := record(filepath.Join("provides", p.ID+".ir.json"), entry.Provides, p.ID); c != 0 {
-			return c
-		}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
+		return 2
 	}
-	for _, c := range m.Consumes {
-		if code := record(filepath.Join("consumes", c.Provider, c.ID+".ir.json"),
-			entry.Consumes, c.Provider+"/"+c.ID); code != 0 {
-			return code
-		}
-	}
-
+	entry.RecordedAt = time.Now().UTC().Truncate(time.Second)
+	entry.RecordedBy = recordedBy()
 	lock, err := st.LoadEnvLock(*env)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
 		return 2
 	}
-	lock[m.Service] = entry
+	lock[svc] = entry
 	if err := st.SaveEnvLock(*env, lock); err != nil {
 		fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
 		return 2
 	}
 	if !*noCommit {
-		if err := st.CommitPaths(fmt.Sprintf("wirefit record-deploy: %s → %s", m.Service, *env), "_envs", "_blobs"); err != nil {
+		if err := st.CommitPaths(fmt.Sprintf("wirefit record-deploy: %s → %s", svc, *env), "_envs", "_blobs"); err != nil {
 			fmt.Fprintln(os.Stderr, "wirefit record-deploy:", err)
 			return 2
 		}
 	}
 	fmt.Printf("recorded %s in %s: %d provided, %d consumed interaction(s) (by %s)\n",
-		m.Service, *env, len(entry.Provides), len(entry.Consumes), entry.RecordedBy)
+		svc, *env, len(entry.Provides), len(entry.Consumes), entry.RecordedBy)
 	return 0
+}
+
+func deployRecordFromIR(st *store.Store, m *manifest.Manifest, root string) (*store.ServiceLock, error) {
+	entry := &store.ServiceLock{Provides: map[string]string{}, Consumes: map[string]string{}}
+	record := func(rel string, into map[string]string, key string) error {
+		p := filepath.Join(root, rel)
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("%s: read contract IR (extract the candidate or publish first): %w", p, err)
+		}
+		sch, err := ir.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		raw, err = ir.CanonicalizeSchema(sch)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		hash, err := st.WriteBlob(raw)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		into[key] = hash
+		return nil
+	}
+	for _, p := range m.Provides {
+		if err := record(filepath.Join("provides", p.ID+".ir.json"), entry.Provides, p.ID); err != nil {
+			return nil, err
+		}
+	}
+	for _, c := range m.Consumes {
+		if err := record(filepath.Join("consumes", c.Provider, c.ID+".ir.json"), entry.Consumes, c.Provider+"/"+c.ID); err != nil {
+			return nil, err
+		}
+	}
+	return entry, nil
+}
+
+func deployRecordFromEnv(st *store.Store, svc, env string) (*store.ServiceLock, error) {
+	lock, err := st.LoadEnvLock(env)
+	if err != nil {
+		return nil, err
+	}
+	source := lock[svc]
+	if source == nil {
+		return nil, fmt.Errorf("%s has no deploy record in %s; record its deployment there first", svc, env)
+	}
+	entry := &store.ServiceLock{Provides: map[string]string{}, Consumes: map[string]string{}}
+	copyHashes := func(src, dst map[string]string) error {
+		for _, key := range sortedKeys(src) {
+			if _, err := st.ReadBlob(src[key]); err != nil {
+				return fmt.Errorf("%s in %s, %s: %w", svc, env, key, err)
+			}
+			dst[key] = src[key]
+		}
+		return nil
+	}
+	if err := copyHashes(source.Provides, entry.Provides); err != nil {
+		return nil, err
+	}
+	if err := copyHashes(source.Consumes, entry.Consumes); err != nil {
+		return nil, err
+	}
+	return entry, nil
 }
 
 // ------------------------------------------------------------- can-i-deploy --
@@ -257,6 +342,9 @@ type matrixEdge struct {
 	// ConsumerBody/ProviderBody feed the HTML modal's side-by-side view; kept
 	// out of the --format json contract (the blobs are available via the store).
 	ConsumerBody, ProviderBody *ir.Schema `json:"-"`
+	// Direction lets the detail view say which side sends; the compat
+	// messages name parties, not data flow.
+	Direction diff.Direction `json:"-"`
 }
 
 // deployRecord is one side's deploy-record provenance, surfaced by the HTML
@@ -491,7 +579,7 @@ func matrixEdges(st *store.Store, staleBefore time.Time) ([]matrixEdge, error) {
 				}
 				r := diff.Compat(prov, proj, diff.CompatOptions{Direction: dir,
 					StrictParser: strictParser(dir, strictOf(st, consumer), strictOf(st, provider))})
-				e.Findings = r.Findings
+				e.Findings, e.Direction = r.Findings, dir
 				switch r.Max() {
 				case diff.Breaking:
 					e.Status, e.Detail = matrixStatusIncompatible, detailOf(r.Top())

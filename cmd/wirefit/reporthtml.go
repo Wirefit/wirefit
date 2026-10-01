@@ -366,7 +366,7 @@ document.querySelectorAll("[data-directory]").forEach(function (dir) {
 </div>
 {{end}}</section>{{end}}
 {{define "detail-view"}}<section class="view" id="{{.ID}}">{{template "shell" ""}}<nav class="breadcrumbs" aria-label="Breadcrumb"><a class="back-link" href="#{{.ContractSlug}}" aria-label="Back to contract" title="Back to contract"><span aria-hidden="true">←</span></a>{{if .ConsumerSlug}}<a href="#{{.ConsumerSlug}}">{{.Consumer}}</a>{{else}}<span>{{.Consumer}}</span>{{end}}<span>/</span><a href="#{{.ContractSlug}}">{{.Provider}} / {{.Interaction}}</a><span>/</span><span>{{.Scope}}</span></nav><div class="pagehead"><div><p class="eyebrow">{{if .Check}}Promotion compatibility{{else}}Deployed compatibility{{end}}</p><h1>{{.Title}}</h1><p class="sub">{{.Scope}}{{with .Check}} · <code>{{.}}</code>{{end}}</p></div><div class="pagehead-status">{{template "status" .Status}}</div></div>
-<div class="card"><div class="relation"><div class="relation-card"><span>Consumer</span><strong>{{if .ConsumerSlug}}<a href="#{{.ConsumerSlug}}"><code>{{.Consumer}}</code></a>{{else}}<code>{{.Consumer}}</code>{{end}}</strong><div class="detail">version {{with .ConsumerRecord}}<code>{{.Label}}</code>{{else}}unavailable{{end}}</div></div><span class="arrow">→</span><div class="relation-card"><span>Provider / interaction</span><strong><a href="#{{.ContractSlug}}"><code>{{.Provider}} / {{.Interaction}}</code></a></strong><div class="detail">version {{with .ProviderRecord}}<code>{{.Label}}</code>{{else}}unavailable{{end}}</div></div></div>{{with .Detail}}<div class="detail-meta"><span>{{.}}</span></div>{{end}}</div>
+<div class="card"><div class="relation"><div class="relation-card"><span>Consumer</span><strong>{{if .ConsumerSlug}}<a href="#{{.ConsumerSlug}}"><code>{{.Consumer}}</code></a>{{else}}<code>{{.Consumer}}</code>{{end}}</strong><div class="detail">version {{with .ConsumerRecord}}<code>{{.Label}}</code>{{else}}unavailable{{end}}</div></div><span class="arrow">→</span><div class="relation-card"><span>Provider / interaction</span><strong><a href="#{{.ContractSlug}}"><code>{{.Provider}} / {{.Interaction}}</code></a></strong><div class="detail">version {{with .ProviderRecord}}<code>{{.Label}}</code>{{else}}unavailable{{end}}</div></div></div>{{if or .Flow .Detail}}<div class="detail-meta">{{with .Flow}}<span class="detail">{{.}}</span>{{end}}{{with .Detail}}<span>{{.}}</span>{{end}}</div>{{end}}</div>
 <h3>Findings</h3>{{if .Findings}}<div class="card"><table class="findings"><caption class="sr-only">Compatibility findings</caption><thead><tr><th>severity</th><th>rule</th><th>path</th><th>message</th></tr></thead><tbody>{{range .Findings}}<tr><td><span class="badge st-{{fclass .Class}}">{{.Class}}</span></td><td><code>{{.Rule}}</code></td><td><code>{{.Path}}</code></td><td>{{.Message}}</td></tr>{{end}}</tbody></table></div>{{else}}<div class="card"><p class="empty">{{if .Detail}}{{.Detail}}{{else}}No contract-relevant findings.{{end}}</p></div>{{end}}
 {{if or .ConsumerRecord .ProviderRecord}}<details class="disclosure"><summary>Deploy provenance</summary><div class="provenance">{{with .ConsumerRecord}}<p class="prov">consumer version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded <time datetime="{{.RecordedAt}}">{{shorttime .RecordedAt}}</time> by {{.RecordedBy}}</p>{{end}}{{with .ProviderRecord}}<p class="prov">provider version <code>{{.Label}}</code>{{if .Version}} · hash <code>{{.Hash}}</code>{{end}} · recorded <time datetime="{{.RecordedAt}}">{{shorttime .RecordedAt}}</time> by {{.RecordedBy}}</p>{{end}}</div></details>{{end}}
 {{if or .ConsumerLines .ProviderLines}}<details class="disclosure"><summary>Compare schemas</summary><div class="bodies">
@@ -389,7 +389,7 @@ type matrixHTMLModal struct {
 	ConsumerSlug, ContractSlug           string
 	ConsumerBodyLabel, ProviderBodyLabel string
 	Status                               matrixStatus
-	Detail                               string
+	Detail, Flow                         string
 	Findings                             []diff.Finding
 	ConsumerRecord, ProviderRecord       *deployRecord
 	ConsumerLines, ProviderLines         []bodyLine
@@ -804,7 +804,7 @@ func edgeModal(id, contractSlug string, e matrixEdge) *matrixHTMLModal {
 		Consumer: e.Consumer, Provider: e.Provider, Interaction: e.Interaction,
 		ContractSlug:      contractSlug,
 		ConsumerBodyLabel: "consumer projection", ProviderBodyLabel: "provider schema",
-		Status: e.Status, Detail: e.Detail, Findings: e.Findings,
+		Status: e.Status, Detail: e.Detail, Flow: flowLabel(e.Direction), Findings: e.Findings,
 		ConsumerRecord: e.ConsumerRecord, ProviderRecord: e.ProviderRecord,
 	}
 	if hasBodies {
@@ -825,7 +825,7 @@ func promoModal(id, contractSlug string, r promoRow) *matrixHTMLModal {
 		Scope: "promotion " + r.From + " → " + r.To, Check: r.Check,
 		Consumer: consumer, Provider: provider, Interaction: r.Interaction,
 		ContractSlug: contractSlug,
-		Status:       r.Status, Detail: r.Detail, Findings: r.Findings,
+		Status:       r.Status, Detail: r.Detail, Flow: flowLabel(r.Direction), Findings: r.Findings,
 		ConsumerRecord: r.ConsumerRecord, ProviderRecord: r.ProviderRecord,
 	}
 	if r.Side == "provides" {

@@ -17,7 +17,7 @@ var matrixFixture = []matrixEdge{
 	{Env: "staging", Consumer: "web-app", Provider: "order-service", Interaction: "orders.get-order",
 		Status: matrixStatusWarning, Detail: "emitted int64, parsed as float64 | precision loss"},
 	{Env: "staging", Consumer: "mobile", Provider: "order-service", Interaction: "orders.get-order",
-		Status: matrixStatusIncompatible, Detail: "field removed <script>alert(1)</script>",
+		Status: matrixStatusIncompatible, Detail: "field removed <script>alert(1)</script>", Direction: diff.P2C,
 		Findings: []diff.Finding{
 			{Class: diff.Breaking, Rule: "field-missing", Path: "$.items[]", Message: "field removed <script>alert(1)</script>"},
 			{Class: diff.Warning, Rule: "type-narrowed", Path: "$.qty", Message: "int64 narrowed to int32"},
@@ -42,7 +42,7 @@ var matrixFixture = []matrixEdge{
 
 var promoFixture = []promoEdge{
 	{From: "dev", To: "staging", Service: "order-service", Side: "provides", Counterpart: "web-app",
-		Interaction: "orders.get-order", Status: matrixStatusIncompatible, Detail: "receiver requires <b>a</b>",
+		Interaction: "orders.get-order", Status: matrixStatusIncompatible, Detail: "receiver requires <b>a</b>", Direction: diff.C2P,
 		Findings: []diff.Finding{{Class: diff.Breaking, Rule: "field-missing", Path: "$.a", Message: "receiver requires <b>a</b>"}},
 		ConsumerBody: &ir.Schema{Type: "object", Required: []string{"a"}, Properties: map[string]*ir.Schema{
 			"a": {Type: "string", Scalar: "string"},
@@ -181,6 +181,7 @@ func TestRenderMatrixHTML(t *testing.T) {
 		`<section class="view" id="edge-c-order-service-orders.get-order-e2">`,
 		`<h1>mobile → order-service/orders.get-order</h1>`,
 		`<span>Consumer</span><strong><code>mobile</code></strong>`,
+		`<div class="detail-meta"><span class="detail">provider sends, consumer reads</span><span>field removed`,
 		"field removed &lt;script&gt;alert(1)&lt;/script&gt;",
 		`<code>field-missing</code>`,
 		`<details class="disclosure"><summary>Deploy provenance</summary>`,
@@ -237,6 +238,7 @@ func TestRenderMatrixHTMLPromotions(t *testing.T) {
 		`<a class="back-link" href="#c-order-service-orders.get-order" aria-label="Back to contract" title="Back to contract"><span aria-hidden="true">←</span></a>`,
 		`<p class="eyebrow">Promotion compatibility</p><h1>web-app → order-service/orders.get-order</h1>`,
 		`<h4>target consumer · staging</h4>`,
+		`<div class="detail-meta"><span class="detail">consumer sends, provider reads</span>`,
 		`<h4>candidate provider · dev</h4>`,
 		`provider version <code>v8</code> · hash <code>222222222222</code>`,
 		`<section class="view" id="promotion-c-billing-invoices.get-p0">`,

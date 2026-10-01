@@ -100,3 +100,22 @@ func TestCompatCorpus(t *testing.T) {
 		})
 	}
 }
+
+// Messages name the parties by role, so the emitting side flips with direction.
+func TestCompatMessagesNameParties(t *testing.T) {
+	opt := `{"type":"object","properties":{"a":{"x-ct-scalar":"string"}}}`
+	req := `{"type":"object","properties":{"a":{"x-ct-scalar":"string"}},"required":["a"]}`
+	for _, tc := range []struct {
+		dir                Direction
+		provider, consumer string
+		want               string
+	}{
+		{P2C, opt, req, "consumer requires this field, provider may leave it out"},
+		{C2P, req, opt, "provider requires this field, consumer may leave it out"},
+	} {
+		r := Compat(sch(t, tc.provider), sch(t, tc.consumer), CompatOptions{Direction: tc.dir})
+		if len(r.Findings) != 1 || r.Findings[0].Message != tc.want {
+			t.Errorf("%s: findings = %+v, want one with %q", tc.dir, r.Findings, tc.want)
+		}
+	}
+}

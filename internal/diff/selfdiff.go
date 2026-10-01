@@ -261,7 +261,7 @@ func (w *selfWalker) fieldRemoved(fp path) {
 			"field removed, and the provider rejects fields it does not know", w.consumedBy(fp))
 	} else {
 		w.add(Safe, "field-removed", fp,
-			"field removed, but extra fields are ignored, so senders can keep sending it")
+			"field removed, but extra fields are ignored, so consumers can keep sending it")
 	}
 }
 

@@ -129,7 +129,7 @@ actually **running**, recorded per environment in the contracts repo:
 
 ```
 wirefit publish       -f contracts.yaml --contracts-repo ../contracts                       # record the contract
-wirefit record-deploy -f contracts.yaml --contracts-repo ../contracts --env production      # pin it as deployed
+wirefit record-deploy -f contracts.yaml --contracts-repo ../contracts --env production --ir .wirefit/ir # record the deployed candidate
 wirefit can-i-deploy  -f contracts.yaml --contracts-repo ../contracts --env production --ir .wirefit/ir
 wirefit matrix        --contracts-repo ../contracts                                          # render the deployed matrix (md; --format json)
 ```

@@ -317,8 +317,9 @@ type promoEdge struct {
 	Findings                                          []diff.Finding `json:",omitempty"`
 	// Each row is one interaction even though the service candidate spans many
 	// blobs, so the HTML detail view can carry the exact compared pair.
-	ConsumerRecord, ProviderRecord *deployRecord `json:"-"`
-	ConsumerBody, ProviderBody     *ir.Schema    `json:"-"`
+	ConsumerRecord, ProviderRecord *deployRecord  `json:"-"`
+	ConsumerBody, ProviderBody     *ir.Schema     `json:"-"`
+	Direction                      diff.Direction `json:"-"`
 }
 
 // promoCheck names the single check a promotion row performed, mirroring the
@@ -429,7 +430,7 @@ func promoEdges(st *store.Store, pipeline []string, staleBefore time.Time, stale
 					Side: dr.side, Counterpart: dr.counterpart, Interaction: dr.id, InSync: inSync,
 					ConsumerBody: dr.consumerBody, ProviderBody: dr.providerBody}
 				if dr.res != nil {
-					e.Findings = dr.res.Findings
+					e.Findings, e.Direction = dr.res.Findings, dr.res.Direction
 				}
 				if err := attachPromoRecords(records, &e, sl, lockB); err != nil {
 					return nil, err

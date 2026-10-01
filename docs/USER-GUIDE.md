@@ -20,7 +20,7 @@ in opposite directions and obey different rules.
 - **P→C** (provider → consumer): responses, published events. Changes that *widen* what the
   producer may emit break consumers.
 - **C→P** (consumer → provider): request bodies, consumed commands. Changes that *narrow*
-  what the provider accepts break senders.
+  what the provider accepts break the consumers sending them.
 
 **Provider / consumer.** A service *provides* interactions (its DTOs are the contract) and
 *consumes* interactions of others (its parsing DTOs are its **usage declaration**). This is
@@ -168,7 +168,7 @@ otherwise post no comment and still report success.
 | `wirefit extract` | DTOs/schemas → IR in `.wirefit/ir/` | `--project`, `--ir`, `-f` (java/classpath flags moved onto the `wirefit-java` command, §5.1) |
 | `wirefit check` | candidate IR vs contracts repo (the PR gate) | `--contracts-repo`, `--ir`, `--overrides`, `--report file.md`, `--format text\|json` |
 | `wirefit publish` | write IR + manifest copy to the contracts repo (merge to main) | `--contracts-repo`, `--no-commit` |
-| `wirefit record-deploy` | pin published contracts as deployed in an env | `--env`, `--contracts-repo` |
+| `wirefit record-deploy` | record deployed contract hashes | `--env`, `--contracts-repo`, `--ir` or `--from-env` |
 | `wirefit can-i-deploy` | candidate vs what is **deployed** in an env | `--env`, `--ir`, `--from-env` + `--service` (promotion gate), `--stale-days`, `--report` |
 | `wirefit matrix` | org-wide deployed compatibility table + promotion readiness | `--format term\|md\|html\|json`, `-o`, `--envs` |
 | `wirefit override add` | append a justified, expiring override | `--justification` (required), `--days`, auto-fills from last check |
@@ -202,9 +202,9 @@ workflow files (Pages enablement, the token secret), is in `CONTRACTS-REPO-SETUP
 **Deploy pipelines** add two lines:
 
 ```bash
-wirefit can-i-deploy --env production --contracts-repo contracts/   # gate
+wirefit can-i-deploy --env production --contracts-repo contracts/ --ir .wirefit/ir
 # ... deploy ...
-wirefit record-deploy --env production --contracts-repo contracts/  # record reality
+wirefit record-deploy --env production --contracts-repo contracts/ --ir .wirefit/ir
 ```
 
 Promotion pipelines (staging → production) gate on what is *recorded on the source
@@ -213,7 +213,17 @@ stage* instead of a local build — no service checkout needed:
 ```bash
 wirefit can-i-deploy --from-env staging --env production \
   --service order-service --contracts-repo contracts/
+# ... deploy the artifact running in staging ...
+wirefit record-deploy --from-env staging --env production \
+  --service order-service --contracts-repo contracts/
 ```
+
+`record-deploy --ir` records the extracted candidate instead of the latest published
+contracts. `--from-env` copies the source environment's recorded hashes and refreshes
+only the target deployment metadata. Its `--service` option avoids needing a local
+manifest; without it, the service comes from `-f`. The two sources are mutually
+exclusive. With neither option, recording still uses published contracts.
+Always record only after successfully deploying the same artifact checked by the gate.
 
 ---
 
@@ -417,7 +427,7 @@ Run the deploy demo (`run-deploy-demo.sh`) in [wirefit/examples](https://github.
 | `unknown corpus case` in extractor-test | case names must match the shipped corpus (`Scalars`, `Presence`, …) |
 | `override ... matched no finding — remove it` | by design: the path/rule moved; the override is stale |
 | `org policy forbids overriding rule X` | the contracts repo's `policy.yaml` wins; talk to its owners |
-| `not published — run wirefit publish before recording deploys` | `record-deploy` pins *published* state; ensure main CI published first |
+| `read contract IR (extract the candidate or publish first)` | default recording pins published state; publish first, or use `--ir` for the deployed candidate |
 | can-i-deploy warns `untracked` | that counterpart never ran `record-deploy` in this env — adopt incrementally, the warning is the point |
 | publish: `git push` fails repeatedly | someone else published concurrently; wirefit retries with pull-rebase ×3 — check repo permissions if it persists |
 

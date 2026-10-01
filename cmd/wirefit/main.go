@@ -84,7 +84,7 @@ usage: wirefit <command> [flags]
   compat     low-level producer-vs-consumer compatibility check
   extractor-test  conformance kit for third-party extractors (docs/extractor-protocol.md)
   override add    append a justified, expiring override to wirefit-overrides.yaml
-  record-deploy   pin this service's published contracts as deployed in an env
+  record-deploy   record candidate or promoted contracts as deployed in an env
   can-i-deploy    check the candidate against what is DEPLOYED in an env
                   (--from-env <env>: gate promoting what runs there instead)
   matrix          render the deployed compatibility matrix across envs, plus

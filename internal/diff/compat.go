@@ -20,10 +20,11 @@ type CompatOptions struct {
 // P2C: provider emits, consumer parses. C2P: consumer emits, provider parses.
 func Compat(provider, consumer *ir.Schema, opts CompatOptions) *Result {
 	r := &Result{Direction: opts.Direction, Findings: []Finding{}}
-	w := &compatWalker{opts: opts, r: r}
+	w := &compatWalker{opts: opts, r: r, sender: "provider", receiver: "consumer"}
 	if opts.Direction == P2C {
 		w.node(path{}, provider, consumer)
 	} else {
+		w.sender, w.receiver = w.receiver, w.sender
 		w.node(path{}, consumer, provider)
 	}
 	r.sort()
@@ -33,6 +34,9 @@ func Compat(provider, consumer *ir.Schema, opts CompatOptions) *Result {
 type compatWalker struct {
 	opts CompatOptions
 	r    *Result
+	// sender and receiver name the parties in messages; which one emits
+	// depends on the direction.
+	sender, receiver string
 }
 
 func (w *compatWalker) add(class Class, rule string, p path, msg string) {
@@ -52,22 +56,22 @@ func (w *compatWalker) node(p path, emitter, parser *ir.Schema) {
 	ke, kp := emitter.JSONKind(), parser.JSONKind()
 	if kindFamily(ke) != kindFamily(kp) {
 		w.add(Breaking, "type-mismatch", p, fmt.Sprintf(
-			"sender sends %s here, receiver expects %s", article(ke), article(kp)))
+			"%s sends %s here, %s expects %s", w.sender, article(ke), w.receiver, article(kp)))
 		return
 	}
 
 	if emitter.Nullable && !parser.Nullable {
-		w.add(Breaking, "nullability-mismatch", p, "sender may send null here, receiver does not accept null")
+		w.add(Breaking, "nullability-mismatch", p, fmt.Sprintf("%s may send null here, %s does not accept null", w.sender, w.receiver))
 	}
 
 	if emitter.Scalar != "" && parser.Scalar != "" && emitter.Scalar != parser.Scalar {
 		switch ir.Fits(emitter.Scalar, parser.Scalar) {
 		case ir.FitLossy: // SPEC F7: the value crosses the wire but not intact.
 			w.add(Warning, "scalar-lossy", p, fmt.Sprintf(
-				"sender sends %s, receiver reads it as %s; large values lose precision", emitter.Scalar, parser.Scalar))
+				"%s sends %s, %s reads it as %s; large values lose precision", w.sender, emitter.Scalar, w.receiver, parser.Scalar))
 		case ir.FitNo:
 			w.add(Breaking, "scalar-mismatch", p, fmt.Sprintf(
-				"sender sends %s, receiver expects %s", emitter.Scalar, parser.Scalar))
+				"%s sends %s, %s expects %s", w.sender, emitter.Scalar, w.receiver, parser.Scalar))
 		}
 	}
 
@@ -75,12 +79,12 @@ func (w *compatWalker) node(p path, emitter, parser *ir.Schema) {
 	if len(parser.Enum) > 0 {
 		if len(emitter.Enum) == 0 {
 			w.add(Breaking, "enum-open-vs-closed", p,
-				"sender may send any value here, receiver only accepts a fixed list")
+				fmt.Sprintf("%s may send any value here, %s only accepts a fixed list", w.sender, w.receiver))
 		} else {
 			for _, v := range emitter.Enum {
 				if !contains(parser.Enum, v) {
 					w.add(Breaking, "enum-unknown-value", p, fmt.Sprintf(
-						"sender may send %q, which the receiver does not accept", v))
+						"%s may send %q, which the %s does not accept", w.sender, v, w.receiver))
 				}
 			}
 		}
@@ -102,13 +106,13 @@ func (w *compatWalker) objects(p path, emitter, parser *ir.Schema) {
 		ef := emitter.Properties[name]
 		if ef == nil {
 			if parser.IsRequired(name) {
-				w.add(Breaking, "field-missing", fp, "receiver requires this field, sender never sends it")
+				w.add(Breaking, "field-missing", fp, fmt.Sprintf("%s requires this field, %s never sends it", w.receiver, w.sender))
 			}
 			// Optional expectation on a never-emitted field: tolerated.
 			continue
 		}
 		if parser.IsRequired(name) && !emitter.IsRequired(name) {
-			w.add(Breaking, "presence-not-guaranteed", fp, "receiver requires this field, sender may leave it out")
+			w.add(Breaking, "presence-not-guaranteed", fp, fmt.Sprintf("%s requires this field, %s may leave it out", w.receiver, w.sender))
 		}
 		w.node(fp, ef, parser.Properties[name])
 	}
@@ -118,7 +122,7 @@ func (w *compatWalker) objects(p path, emitter, parser *ir.Schema) {
 			for _, name := range sortedKeys(emitter.Properties) {
 				if parser.Properties[name] == nil {
 					w.add(Breaking, "unknown-field-rejected", p.field(name),
-						"sender sends this field, receiver rejects fields it does not know")
+						fmt.Sprintf("%s sends this field, %s rejects fields it does not know", w.sender, w.receiver))
 				}
 			}
 		}
@@ -131,7 +135,7 @@ func (w *compatWalker) objects(p path, emitter, parser *ir.Schema) {
 		switch {
 		case ev == nil && pv != nil:
 			w.add(Breaking, "map-value-open-vs-typed", p.mapValue(),
-				"sender's map values can be anything, receiver expects one fixed type")
+				fmt.Sprintf("%s's map values can be anything, %s expects one fixed type", w.sender, w.receiver))
 		case ev != nil && pv != nil:
 			w.node(p.mapValue(), ev, pv)
 		}
@@ -141,8 +145,8 @@ func (w *compatWalker) objects(p path, emitter, parser *ir.Schema) {
 func (w *compatWalker) unions(p path, emitter, parser *ir.Schema) {
 	if emitter.Discriminator != parser.Discriminator {
 		w.add(Breaking, "discriminator-mismatch", p,
-			fmt.Sprintf("sender tags this union with %q, receiver reads the tag from %q",
-				emitter.Discriminator, parser.Discriminator))
+			fmt.Sprintf("%s tags this union with %q, %s reads the tag from %q",
+				w.sender, emitter.Discriminator, w.receiver, parser.Discriminator))
 		return
 	}
 	parserBranches := map[string]*ir.Schema{}
@@ -153,7 +157,7 @@ func (w *compatWalker) unions(p path, emitter, parser *ir.Schema) {
 		pb := parserBranches[eb.DiscriminatorValue]
 		if pb == nil {
 			w.add(Breaking, "union-branch-unknown", p.branch(eb.DiscriminatorValue),
-				fmt.Sprintf("sender may send the %q variant, which the receiver does not handle", eb.DiscriminatorValue))
+				fmt.Sprintf("%s may send the %q variant, which the %s does not handle", w.sender, eb.DiscriminatorValue, w.receiver))
 			continue
 		}
 		w.node(p.branch(eb.DiscriminatorValue), eb, pb)

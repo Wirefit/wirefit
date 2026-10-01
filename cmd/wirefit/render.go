@@ -63,6 +63,18 @@ func dirLabel(d diff.Direction) string {
 	return string(d)
 }
 
+// flowLabel says which party writes the payload, so a finding like "provider
+// requires this field" reads correctly for request bodies too.
+func flowLabel(d diff.Direction) string {
+	switch d {
+	case diff.P2C:
+		return "provider sends, consumer reads"
+	case diff.C2P:
+		return "consumer sends, provider reads"
+	}
+	return ""
+}
+
 func plural(n int, word string) string {
 	if n == 1 {
 		return "1 " + word
