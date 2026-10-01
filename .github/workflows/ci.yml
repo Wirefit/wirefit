@@ -50,8 +50,9 @@ jobs:
       - name: python extractor via protocol v1
         run: |
           pip install pydantic --quiet
+          go build -o "$RUNNER_TEMP/wirefit-py" ./cmd/wirefit-py
           go run ./cmd/wirefit extractor-test --cases extractors/python/fixtures/cases.yaml \
-            --project extractors/python -- go run ./cmd/wirefit-py
+            --project extractors/python -- "$RUNNER_TEMP/wirefit-py"
 
   # Build-system integration fixtures. The end-to-end consumer/provider demos
   # moved to github.com/wirefit/examples, which runs them against released wirefit.
