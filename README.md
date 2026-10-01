@@ -53,13 +53,19 @@ internal/ir/        IR model, canonicalization (sorted-key JCS-style), content h
 internal/diff/      self-diff (before/after) + compat (producer vs consumer) engines, rule corpus in tests
 internal/manifest/  contracts.yaml parsing + validation
 internal/store/     git-backed contracts repo: publish, counterpart lookup, push with rebase-retry
-internal/javatool/  embedded WirefitExtract source, pinned+checksummed jar bootstrap, maven/gradle classpath resolution
-internal/tstool/    embedded extract.js (TS compiler API), pinned typescript npm bootstrap
-conformance/        cross-language corpus: Java + TS + Go fixtures must produce hash-identical IR
 internal/gotool/    Go extractor (generated reflection program inside the service module)
-internal/extproto/  public extractor protocol v1 (docs/extractor-protocol.md)
 internal/importer/  schema-native importers: .proto, .avsc, GraphQL SDL + operations
-cmd/wirefit-py/ official Python extractor command (Pydantic v2 over protocol v1)
+internal/extract/   extractor registry (routing by manifest order) + the External protocol adapter
+internal/extproto/  public extractor protocol v1 (docs/extractor-protocol.md)
+internal/extserve/  extractor side of the protocol + shared role handling for the official binaries
+internal/extrun/    subprocesses, isolated preparation, and atomic source-keyed caches
+cmd/wirefit-java/   official Java extractor command (Jackson over protocol v1)
+cmd/wirefit-ts/     official TypeScript/Zod extractor command (protocol v1)
+cmd/wirefit-py/     official Python extractor command (Pydantic v2 over protocol v1)
+internal/javatool/  engine behind wirefit-java: embedded WirefitExtract source, pinned+checksummed jar bootstrap, maven/gradle classpath resolution
+internal/tstool/    engine behind wirefit-ts: embedded extract.js (TS compiler API), pinned typescript npm bootstrap
+internal/pytool/    engine behind wirefit-py: embedded extract.py, run with the service's Python
+conformance/        cross-language corpus: Java + TS + Go fixtures must produce hash-identical IR
 extractors/python/  Python corpus fixtures
 internal/override/  rule overrides: (interaction,path,rule) downgrades with justification + expiry
 ci/gitlab/          GitLab CI component (sticky MR note, beta)
@@ -92,8 +98,8 @@ is blocked with the consumer named; removing an **unconsumed** field passes as s
 
 ```
 cd my-service
+wirefit init                              # scaffold contracts.yaml, DTO candidates as comments
 $EDITOR contracts.yaml                    # declare provides/consumes — one small file
-                                          # (`wirefit init` scaffolding is planned)
 wirefit extract                           # asks maven/gradle for the classpath itself
 wirefit check --contracts-repo ../contracts
 ```
@@ -101,9 +107,15 @@ wirefit check --contracts-repo ../contracts
 No build-file changes, no plugin to apply: `wirefit extract` interrogates the project's own
 build tool (`mvn dependency:build-classpath` / an injected Gradle init script), and the
 extractor bootstraps itself (embedded source, pinned + SHA-256-verified Jackson jars,
-compiled once into the user cache). Custom Jackson config (Spring etc.): point
-`settings.java-mapper` at any static `ObjectMapper` provider.
+compiled once into the user cache). Custom Jackson config (Spring etc.): pass
+`--mapper <class-fqn>#<static-method>` on the `wirefit-java` extractor command to use any
+static `ObjectMapper` provider.
 
+All official extractors prepare files in a private temporary directory. Java,
+TypeScript, and Python publish complete artifacts atomically into caches keyed by
+their source and dependency inputs; later runs reuse those artifacts. Go generates
+its program inside the service module and removes its temporary directory after
+each run, preserving access to the service's `internal/` packages.
 
 Run `wirefit extract` only against repositories you trust. Extraction may execute the
 target project or its tooling: Java classpath resolution can run `mvnw`/`gradlew`, Go

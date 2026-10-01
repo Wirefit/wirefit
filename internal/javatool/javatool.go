@@ -25,8 +25,11 @@ import (
 //go:embed WirefitExtract.java
 var extractorSource string
 
-// extractorVersion keys the compile cache; bump on WirefitExtract.java changes.
+// extractorVersion keys the jar cache. The compiled classes are keyed by the
+// source itself (classesDir), so a missed bump cannot serve stale IR.
 const extractorVersion = "0.3.0"
+
+const javaRelease = "11"
 
 type dep struct {
 	file, path, sha256 string
@@ -52,6 +55,14 @@ var httpClient = &http.Client{Timeout: 45 * time.Second}
 
 func cacheDir() (string, error) {
 	return extrun.CacheDir("java-extractor", extractorVersion)
+}
+
+func classesDir(dir, source string) string {
+	inputs := []string{source, javaRelease}
+	for _, d := range deps {
+		inputs = append(inputs, d.file, d.sha256)
+	}
+	return extrun.CachePath(dir, inputs...)
 }
 
 // RunOptions configures one Java extraction invocation.
@@ -107,8 +118,9 @@ func EnsureExtractor() (string, error) {
 	}
 	var parts []string
 
-	classes := filepath.Join(dir, "classes")
-	parts = append(parts, classes)
+	source := extractorSource
+	classes := classesDir(dir, source)
+	parts = append(parts, filepath.Join(classes, "classes"))
 
 	var jarPaths []string
 	for _, d := range deps {
@@ -120,11 +132,8 @@ func EnsureExtractor() (string, error) {
 	}
 	parts = append(parts, jarPaths...)
 
-	marker := filepath.Join(classes, "io", "wirefit", "extract", "WirefitExtract.class")
-	if _, err := os.Stat(marker); os.IsNotExist(err) {
-		if err := compile(dir, classes, jarPaths); err != nil {
-			return "", err
-		}
+	if err := compile(classes, source, jarPaths); err != nil {
+		return "", err
 	}
 	return strings.Join(parts, string(os.PathListSeparator)), nil
 }
@@ -141,23 +150,30 @@ func ensureJar(path string, d dep) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: HTTP %d", d.file, resp.StatusCode)
 	}
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if ok, sum := verify(tmp, d.sha256); !ok {
-		os.Remove(tmp)
-		return fmt.Errorf("checksum mismatch for %s: got %s; refusing to use it", d.file, sum)
-	}
-	return os.Rename(tmp, path)
+	return extrun.WithTempDir(filepath.Dir(path), ".download-", func(work string) error {
+		tmp := filepath.Join(work, d.file)
+		f, err := os.Create(tmp)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(f, resp.Body); err != nil {
+			f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		if ok, sum := verify(tmp, d.sha256); !ok {
+			return fmt.Errorf("checksum mismatch for %s: got %s; refusing to use it", d.file, sum)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			if ok, _ := verify(path, d.sha256); ok {
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
 }
 
 func verify(path, want string) (bool, string) {
@@ -174,22 +190,26 @@ func verify(path, want string) (bool, string) {
 	return got == want, got
 }
 
-func compile(dir, classes string, jarPaths []string) error {
-	javac, err := findJavac()
-	if err != nil {
+func compile(dir, source string, jarPaths []string) error {
+	return extrun.EnsureDir(dir, func(work string) error {
+		javac, err := findJavac()
+		if err != nil {
+			return err
+		}
+		src := filepath.Join(work, "WirefitExtract.java")
+		if err := os.WriteFile(src, []byte(source), 0o644); err != nil {
+			return err
+		}
+		classes := filepath.Join(work, "classes")
+		cmd := exec.Command(javac, "--release", javaRelease,
+			"-cp", strings.Join(jarPaths, string(os.PathListSeparator)),
+			"-d", classes, src)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("compiling extractor with %s failed: %s: %w", javac, out, err)
+		}
+		_, err = os.Stat(filepath.Join(classes, "io", "wirefit", "extract", "WirefitExtract.class"))
 		return err
-	}
-	src := filepath.Join(dir, "WirefitExtract.java")
-	if err := os.WriteFile(src, []byte(extractorSource), 0o644); err != nil {
-		return err
-	}
-	cmd := exec.Command(javac, "--release", "11",
-		"-cp", strings.Join(jarPaths, string(os.PathListSeparator)),
-		"-d", classes, src)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("compiling extractor with %s failed: %s: %w", javac, out, err)
-	}
-	return nil
+	})
 }
 
 func findJavac() (string, error) {

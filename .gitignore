@@ -9,3 +9,8 @@ build/
 .wirefit/
 wirefit-overrides.yaml
 __pycache__/
+# Eclipse / VS Code Java metadata
+.classpath
+.project
+.settings/
+examples/*/bin/

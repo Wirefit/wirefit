@@ -14,7 +14,9 @@ import (
 	"github.com/wirefit/wirefit/internal/manifest"
 )
 
-const version = "0.1.0-dev"
+// version is a var, not a const: goreleaser stamps it with -X main.version,
+// which silently does nothing to a constant.
+var version = "dev"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
@@ -72,6 +74,7 @@ func usage() {
 
 usage: wirefit <command> [flags]
 
+  init       scaffold a contracts.yaml (suggests Java DTO candidates)
   validate   validate a contracts.yaml manifest
   extract    extract IR from DTOs declared in the manifest
   check      check candidate IR against the contracts repo (PR gate)
@@ -87,8 +90,6 @@ usage: wirefit <command> [flags]
   matrix          render the deployed compatibility matrix across envs, plus
                   promotion readiness when _envs/pipeline.yaml (or --envs) orders them
   version    print version
-
-not yet implemented: init
 `)
 }
 
