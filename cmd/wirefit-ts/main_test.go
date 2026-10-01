@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,7 +17,37 @@ func TestExtractRejectsBothRoles(t *testing.T) {
 		{Ref: "api.ts#Order", Role: "consumed"},
 		{Ref: "api.ts#Order", Role: "provided"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "both provides and consumes") {
+	if err == nil || !strings.Contains(err.Error(), "zod io semantics differ per side") {
 		t.Fatalf("want both-roles error, got %v", err)
+	}
+}
+
+func TestExtractPassesRolesToTstool(t *testing.T) {
+	old := runTS
+	defer func() { runTS = old }()
+	var gotDir string
+	var gotProvided, gotConsumed []string
+	runTS = func(projectDir string, provided, consumed []string) (map[string]json.RawMessage, error) {
+		gotDir = projectDir
+		gotProvided = append([]string(nil), provided...)
+		gotConsumed = append([]string(nil), consumed...)
+		return map[string]json.RawMessage{}, nil
+	}
+
+	_, err := extract("/svc", []extproto.Spec{
+		{Ref: "out.ts#Order", Role: "provided"},
+		{Ref: "in.ts#Order", Role: "consumed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDir != "/svc" {
+		t.Fatalf("projectDir = %q", gotDir)
+	}
+	if !reflect.DeepEqual(gotProvided, []string{"out.ts#Order"}) {
+		t.Fatalf("provided = %v", gotProvided)
+	}
+	if !reflect.DeepEqual(gotConsumed, []string{"in.ts#Order"}) {
+		t.Fatalf("consumed = %v", gotConsumed)
 	}
 }

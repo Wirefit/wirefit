@@ -10,9 +10,50 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 
 	"github.com/wirefit/wirefit/internal/extproto"
 )
+
+// SplitRoles partitions specs by role for a role-sensitive extractor, one whose
+// source gives the two sides different io semantics. Such a ref cannot serve
+// both sides, so a ref used in both provides and consumes is an error; why
+// names the difference (e.g. "zod io semantics differ per side"). The dual-role
+// rejection is one protocol behaviour: a private copy per binary drifts.
+func SplitRoles(specs []extproto.Spec, why string) (provided, consumed []string, err error) {
+	roles := map[string]string{}
+	for _, s := range specs {
+		if r, ok := roles[s.Ref]; ok {
+			if r != s.Role {
+				return nil, nil, fmt.Errorf("%s is used in both provides and consumes; split the schema (%s)", s.Ref, why)
+			}
+			continue
+		}
+		roles[s.Ref] = s.Role
+		if s.Role == extproto.RoleProvided {
+			provided = append(provided, s.Ref)
+		} else {
+			consumed = append(consumed, s.Ref)
+		}
+	}
+	return provided, consumed, nil
+}
+
+// Refs returns the distinct refs in specs, sorted, for a role-agnostic
+// extractor: its source draws no io distinction, so a ref used on both sides
+// extracts once.
+func Refs(specs []extproto.Spec) []string {
+	seen := map[string]bool{}
+	refs := make([]string, 0, len(specs))
+	for _, s := range specs {
+		if !seen[s.Ref] {
+			seen[s.Ref] = true
+			refs = append(refs, s.Ref)
+		}
+	}
+	sort.Strings(refs)
+	return refs
+}
 
 // Serve reads a Request from stdin, dispatches to fn and writes the Response
 // to stdout, returning the process exit code. Failures travel in the Response

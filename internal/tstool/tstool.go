@@ -18,7 +18,7 @@ import (
 //go:embed extract.js
 var extractorSource string
 
-// extractorVersion keys the cache; bump on extract.js changes.
+// extractorVersion namespaces the cache; source edits get their own artifacts.
 const extractorVersion = "0.3.0"
 
 // typescriptVersion is the pinned compiler dependency. npm verifies its
@@ -36,26 +36,31 @@ func EnsureExtractor() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	script := filepath.Join(dir, "extract.js")
-	if err := os.WriteFile(script, []byte(extractorSource), 0o644); err != nil {
-		return "", err
-	}
+	source := extractorSource
 	pkg := fmt.Sprintf(`{"name":"wirefit-ts-extractor","private":true,"dependencies":{"typescript":"%s"}}`, typescriptVersion)
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(filepath.Join(dir, "node_modules", "typescript", "package.json")); os.IsNotExist(err) {
+	dir = extrun.CachePath(dir, source, pkg)
+	if err := extrun.EnsureDir(dir, func(work string) error {
+		if err := os.WriteFile(filepath.Join(work, "extract.js"), []byte(source), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(work, "package.json"), []byte(pkg), 0o644); err != nil {
+			return err
+		}
 		npm, err := exec.LookPath("npm")
 		if err != nil {
-			return "", fmt.Errorf("npm not found: Node.js is required to extract TypeScript DTOs")
+			return fmt.Errorf("npm not found: Node.js is required to extract TypeScript DTOs")
 		}
 		cmd := exec.Command(npm, "install", "--no-audit", "--no-fund", "--silent")
-		cmd.Dir = dir
+		cmd.Dir = work
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("installing typescript@%s failed: %s: %w", typescriptVersion, out, err)
+			return fmt.Errorf("installing typescript@%s failed: %s: %w", typescriptVersion, out, err)
 		}
+		_, err = os.Stat(filepath.Join(work, "node_modules", "typescript", "package.json"))
+		return err
+	}); err != nil {
+		return "", err
 	}
-	return script, nil
+	return filepath.Join(dir, "extract.js"), nil
 }
 
 // Run executes the extractor. Specs ("file.ts#Export") are passed with their

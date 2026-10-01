@@ -18,7 +18,7 @@ func TestCacheEnsureExtractorWritesScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(cache, "wirefit", "py-extractor", extractorVersion, "extract.py")
+	want := filepath.Join(extrun.CachePath(filepath.Join(cache, "wirefit", "py-extractor", extractorVersion), extractorSource), "extract.py")
 	if got != want {
 		t.Fatalf("script = %q, want %q", got, want)
 	}
@@ -28,6 +28,27 @@ func TestCacheEnsureExtractorWritesScript(t *testing.T) {
 	}
 	if string(data) != extractorSource {
 		t.Fatal("cached script differs from the embedded extractor")
+	}
+}
+
+func TestCacheSourceChangesPreserveExistingScript(t *testing.T) {
+	useTempCache(t)
+	source := extractorSource
+	t.Cleanup(func() { extractorSource = source })
+	a, err := EnsureExtractor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	extractorSource += "\n# different extractor\n"
+	b, err := EnsureExtractor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b {
+		t.Fatal("different sources share a script path")
+	}
+	if data, err := os.ReadFile(a); err != nil || string(data) != source {
+		t.Fatalf("existing script changed: %v", err)
 	}
 }
 
@@ -80,7 +101,7 @@ printf '{"ok":{"type":"string"}}'
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(cache, "wirefit", "py-extractor", extractorVersion, "extract.py") + "\n--project\n/svc\nout=a.py#Out\nin=b.py#In\n"
+	want := filepath.Join(extrun.CachePath(filepath.Join(cache, "wirefit", "py-extractor", extractorVersion), extractorSource), "extract.py") + "\n--project\n/svc\nout=a.py#Out\nin=b.py#In\n"
 	if string(data) != want {
 		t.Fatalf("fake python args:\n%s\nwant:\n%s", data, want)
 	}
@@ -116,7 +137,7 @@ printf '{"ok":{"type":"string"}}'
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(cache, "wirefit", "py-extractor", extractorVersion, "extract.py") + "\n--project\n" + project + "\nout=a.py#Out\n"
+	want := filepath.Join(extrun.CachePath(filepath.Join(cache, "wirefit", "py-extractor", extractorVersion), extractorSource), "extract.py") + "\n--project\n" + project + "\nout=a.py#Out\n"
 	if string(data) != want {
 		t.Fatalf("fake python args:\n%s\nwant:\n%s", data, want)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -60,6 +61,59 @@ func TestServeRejectsUnknownRole(t *testing.T) {
 	}
 	if !strings.Contains(resp.Error, "banana") || !strings.Contains(resp.Error, "a.py#T") {
 		t.Errorf("error should name the role and the ref: %q", resp.Error)
+	}
+}
+
+func TestSplitRoles(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		specs              []extproto.Spec
+		provided, consumed []string
+		err                string
+	}{
+		{
+			name: "partitions by role",
+			specs: []extproto.Spec{
+				{Ref: "a.ts#A", Role: "provided"}, {Ref: "b.ts#B", Role: "consumed"}, {Ref: "c.ts#C", Role: "provided"},
+			},
+			provided: []string{"a.ts#A", "c.ts#C"},
+			consumed: []string{"b.ts#B"},
+		},
+		{
+			name:     "same ref and role twice extracts once",
+			specs:    []extproto.Spec{{Ref: "a.ts#A", Role: "consumed"}, {Ref: "a.ts#A", Role: "consumed"}},
+			consumed: []string{"a.ts#A"},
+		},
+		{
+			name:  "one ref on both sides is rejected",
+			specs: []extproto.Spec{{Ref: "a.ts#A", Role: "consumed"}, {Ref: "a.ts#A", Role: "provided"}},
+			err:   "a.ts#A is used in both provides and consumes; split the schema (why)",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, c, err := SplitRoles(tc.specs, "why")
+			if tc.err != "" {
+				if err == nil || err.Error() != tc.err {
+					t.Fatalf("err = %v, want %q", err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(p, tc.provided) || !reflect.DeepEqual(c, tc.consumed) {
+				t.Fatalf("provided = %v, consumed = %v; want %v, %v", p, c, tc.provided, tc.consumed)
+			}
+		})
+	}
+}
+
+func TestRefsDedupsAcrossRolesSorted(t *testing.T) {
+	got := Refs([]extproto.Spec{
+		{Ref: "b.Order", Role: "provided"}, {Ref: "a.Invoice", Role: "consumed"}, {Ref: "b.Order", Role: "consumed"},
+	})
+	if want := []string{"a.Invoice", "b.Order"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("refs = %v, want %v", got, want)
 	}
 }
 

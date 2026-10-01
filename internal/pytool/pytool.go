@@ -18,7 +18,7 @@ import (
 //go:embed extract.py
 var extractorSource string
 
-// extractorVersion keys the cache; bump on extract.py changes.
+// extractorVersion namespaces the cache; source edits get their own artifacts.
 const extractorVersion = "0.1.0"
 
 func cacheDir() (string, error) {
@@ -38,11 +38,14 @@ func EnsureExtractor() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	script := filepath.Join(dir, "extract.py")
-	if err := os.WriteFile(script, []byte(extractorSource), 0o644); err != nil {
+	source := extractorSource
+	dir = extrun.CachePath(dir, source)
+	if err := extrun.EnsureDir(dir, func(work string) error {
+		return os.WriteFile(filepath.Join(work, "extract.py"), []byte(source), 0o644)
+	}); err != nil {
 		return "", err
 	}
-	return script, nil
+	return filepath.Join(dir, "extract.py"), nil
 }
 
 // Run extracts IR for Python specs by invoking the embedded extractor with the

@@ -88,26 +88,20 @@ func Run(projectDir string, specs []string) (map[string]json.RawMessage, error) 
 	}
 
 	genRoot := filepath.Join(projectDir, ".wirefit", "gen")
-	if err := os.MkdirAll(genRoot, 0o755); err != nil {
-		return nil, err
-	}
-	// One directory per run, removed on its own: concurrent extractions must not
-	// overwrite or delete each other's program, and cleanup must leave the rest
-	// of .wirefit/gen alone.
-	genDir, err := os.MkdirTemp(genRoot, "extract-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(genDir)
 	src := strings.Replace(program, "//IMPORTS//", strings.Join(importLines, "\n"), 1)
 	src = strings.Replace(src, "//TARGETS//", strings.Join(entryLines, "\n"), 1)
-	if err := os.WriteFile(filepath.Join(genDir, "main.go"), []byte(src), 0o644); err != nil {
-		return nil, err
-	}
-
-	cmd := exec.Command("go", "run", "./.wirefit/gen/"+filepath.Base(genDir))
-	cmd.Dir = projectDir
-	return extrun.Run("go", cmd)
+	var out map[string]json.RawMessage
+	err = extrun.WithTempDir(genRoot, "extract-", func(dir string) error {
+		if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+			return err
+		}
+		cmd := exec.Command("go", "run", "./.wirefit/gen/"+filepath.Base(dir))
+		cmd.Dir = projectDir
+		var err error
+		out, err = extrun.Run("go", cmd)
+		return err
+	})
+	return out, err
 }
 
 // program is the generated reflection walker. Stdlib only; deterministic
